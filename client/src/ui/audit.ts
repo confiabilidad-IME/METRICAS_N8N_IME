@@ -80,6 +80,9 @@ export class AuditPanel implements UiComponent {
   private readonly chip: HTMLElement;
   private readonly hint: HTMLElement;
   private readonly content: HTMLElement;
+  /** Usuario con sesión y botón "Salir"; ocultos si el servidor no usa login (AUDIT_AUTH=off). */
+  private readonly session: HTMLElement;
+  private readonly userLabel: HTMLElement;
   private tab: AuditTab = loadTab();
   private readonly tabBtns = new Map<AuditTab, { btn: HTMLButtonElement; badge: HTMLElement }>();
   private readonly panels = new Map<AuditTab, HTMLElement>();
@@ -113,11 +116,13 @@ export class AuditPanel implements UiComponent {
     }
     tablist.addEventListener('keydown', (e) => this.onTabKey(e));
     const close = iconButton(ICONS.close, 'Cerrar (Esc)', () => this.close(), 'ui-icon-btn--sm');
+    this.userLabel = h('span', { class: 'ui-audit__user' });
+    this.session = h('div', { class: 'ui-audit__session', hidden: true }, this.userLabel, h('button', { class: 'ui-link-btn', type: 'button', text: 'Salir', on: { click: () => void this.logout() } }));
 
     this.el = h(
       'dialog',
       { class: 'ui-dialog ui-day ui-audit', attrs: { 'aria-labelledby': 'ui-audit-title' } },
-      h('div', { class: 'ui-dialog__head ui-day__head' }, h('div', { class: 'ui-day__title' }, h('h2', { text: 'Auditoría n8n', attrs: { id: 'ui-audit-title' } }), this.chip), h('div', { class: 'ui-day__controls' }, this.select), close),
+      h('div', { class: 'ui-dialog__head ui-day__head' }, h('div', { class: 'ui-day__title' }, h('h2', { text: 'Auditoría n8n', attrs: { id: 'ui-audit-title' } }), this.chip), h('div', { class: 'ui-day__controls' }, this.session, this.select), close),
       tablist,
       h('div', { class: 'ui-day__body' }, this.hint, this.content),
     );
@@ -128,6 +133,29 @@ export class AuditPanel implements UiComponent {
     this.el.addEventListener('keydown', (e) => e.stopPropagation());
     this.el.addEventListener('close', () => this.onClosed());
     this.applyTab();
+  }
+
+  /** Quién tiene la sesión; sin login en el servidor (404/401) no se muestra nada. */
+  private async loadSession(): Promise<void> {
+    try {
+      const res = await fetch('/api/session', { cache: 'no-store', credentials: 'same-origin' });
+      if (!res.ok) return setHidden(this.session, true);
+      const body = (await res.json()) as { usuario?: unknown };
+      if (typeof body.usuario !== 'string') return setHidden(this.session, true);
+      setText(this.userLabel, body.usuario);
+      setHidden(this.session, false);
+    } catch {
+      setHidden(this.session, true);
+    }
+  }
+
+  private async logout(): Promise<void> {
+    try {
+      await fetch('/api/logout', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}', credentials: 'same-origin' });
+    } finally {
+      // Aunque la petición falle, se va a /login: sin cookie válida el servidor lo pedirá de nuevo.
+      location.assign('/login');
+    }
   }
 
   private selectTab(tab: AuditTab, focus: boolean): void {
@@ -165,6 +193,7 @@ export class AuditPanel implements UiComponent {
     this.opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     this.el.showModal();
     this.button.setAttribute('aria-expanded', 'true');
+    void this.loadSession();
     this.paint(true);
     if (this.rangeIdx !== 0) void this.loadCustom();
   }

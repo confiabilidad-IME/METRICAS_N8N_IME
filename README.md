@@ -64,3 +64,25 @@ Variables: ver `env.example`. Extra: `AUDIT_RANGE_DAYS` (30), `AUDIT_HOST` (127.
 
 `npm run typecheck`, `npm test`, `npm run build`. El código nuevo está en `server/audit/`, `server/model/n8n-office.ts`,
 `shared/audit.ts` y `client/src/ui/audit*.ts`; el resto es Habblaud adaptado.
+
+## Inicio de sesión
+
+El tablero **siempre** pide usuario y contraseña (nada se sirve sin sesión, ni la página ni la API; solo `/login` y
+`/api/health`). Las contraseñas se guardan cifradas con **scrypt** (hash con sal propia; la contraseña nunca se almacena) y
+la sesión es una cookie `HttpOnly` firmada con HMAC. Tras 5 intentos fallidos el usuario se bloquea unos minutos.
+
+- **Usuarios por defecto:** `admin` y `gerencia`, en `users.default.json` (solo hashes, se versiona). Sus contraseñas iniciales
+  están en `credenciales-iniciales.txt` (ignorado por git): léelas, cámbialas y borra el archivo.
+- **Cambiar una contraseña / agregar usuarios:** `npm run user:add -- <usuario>` (guarda en `users.json`, ignorado por git).
+  `npm run user:remove -- <usuario>` desactiva uno; `npm run user:list` los lista.
+- **Hostings sin disco persistente:** genera el hash con `npm run user:hash` y pásalo en `AUDIT_USERS` (JSON).
+- **Variables:** `AUDIT_SESSION_SECRET` (≥ 32 caracteres; sin él las sesiones se cierran al reiniciar), `AUDIT_SESSION_HOURS`,
+  `AUDIT_TRUST_PROXY=1` y `AUDIT_COOKIE_SECURE=1` detrás de un proxy HTTPS. Ver `env.example`.
+- Si no hay ningún usuario activo, el servidor **se niega a arrancar** (nunca queda abierto por error).
+
+### Publicarlo
+
+Es un servidor Node con conexión en tiempo real y sondeo a n8n: necesita un proceso que siga corriendo (Render, Railway, Fly.io,
+un VPS o Docker), con `npm run build && npm start`, `AUDIT_HOST=0.0.0.0` y las variables de `env.example` en el panel del
+hosting. **No funciona como sitio estático en Vercel** (daría 404 y, aunque se sirviera la página, sin servidor no hay datos).
+Pon siempre HTTPS delante: sin él, las contraseñas viajan en claro.

@@ -1,0 +1,10 @@
+[
+  {
+    "usuario": "admin",
+    "hash": "scrypt$16384$8$1$zqOXAdXjStWSZ6VWYJrKDA$nTJnVDwxb_w7IW-zfKfHfhDLr9h4i0tBlrywJSr1jbE0QXvVRZ3PdHsvIuOBl9Li83ks28aanNdZ0Gz0kor6sw"
+  },
+  {
+    "usuario": "gerencia",
+    "hash": "scrypt$16384$8$1$A7hfskjgsBjntiWlZaPR6A$yLITkHU6qkbjJMGAb3saVEXwzZyIH-pBuGRWNiGjqkZQIWK-vWwzjbBbtDX5K2opgv75ksXYmtaHD-0eh3mymg"
+  }
+]

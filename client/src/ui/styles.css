@@ -11504,3 +11504,20 @@ html.is-replay #world {
 .ui-audit__review td {
   padding: 4px 6px;
 }
+
+.ui-audit__session {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--ui-muted);
+}
+
+.ui-audit__session[hidden] {
+  display: none;
+}
+
+.ui-audit__user {
+  font-weight: 600;
+  color: var(--ui-text);
+}

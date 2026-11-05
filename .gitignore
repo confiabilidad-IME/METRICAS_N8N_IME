@@ -10,3 +10,7 @@ coverage/
 
 # Datos locales de la app
 .data/
+
+# Usuarios y credenciales: solo hashes en users.default.json (versionado); lo demas es local.
+users.json
+credenciales-iniciales.txt

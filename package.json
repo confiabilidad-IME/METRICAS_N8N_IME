@@ -18,7 +18,12 @@
     "start": "node dist/server/index.js",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p server/tsconfig.json",
     "test": "vitest run",
-    "i18n:check": "tsx scripts/i18n-check.ts"
+    "i18n:check": "tsx scripts/i18n-check.ts",
+    "user:init": "tsx scripts/users.ts init",
+    "user:add": "tsx scripts/users.ts add",
+    "user:remove": "tsx scripts/users.ts remove",
+    "user:hash": "tsx scripts/users.ts hash",
+    "user:list": "tsx scripts/users.ts list"
   },
   "devDependencies": {
     "@fontsource/pixelify-sans": "^5.3.0",

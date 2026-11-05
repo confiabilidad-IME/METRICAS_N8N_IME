@@ -1,0 +1,12 @@
+node_modules/
+dist/
+coverage/
+*.log
+
+# Secretos: nunca versionar. Usar env.example como plantilla.
+.env
+.env.*
+!env.example
+
+# Datos locales de la app
+.data/

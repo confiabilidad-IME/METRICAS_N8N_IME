@@ -1,0 +1,34 @@
+{
+  "name": "metrics-n8n-flows",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Tablero de auditoría de los flujos n8n de IME (estado de servicios, ejecuciones y métricas de negocio), basado en Habblaud.",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "dev": "tsx watch --clear-screen=false --exclude './client/**' server/index.ts --dev",
+    "dev:client": "vite --config vite.config.ts",
+    "demo": "AUDIT_DEMO=1 npm run dev",
+    "build": "npm run build:client && npm run build:server",
+    "build:client": "vite build --config vite.config.ts",
+    "build:server": "node scripts/build-server.mjs",
+    "start": "node dist/server/index.js",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p server/tsconfig.json",
+    "test": "vitest run",
+    "i18n:check": "tsx scripts/i18n-check.ts"
+  },
+  "devDependencies": {
+    "@fontsource/pixelify-sans": "^5.3.0",
+    "@types/node": "^22.20.5",
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/xterm": "^6.0.0",
+    "esbuild": "^0.28.2",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.4",
+    "vitest": "^5.0.3"
+  }
+}

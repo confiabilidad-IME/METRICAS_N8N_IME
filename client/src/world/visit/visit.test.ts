@@ -277,6 +277,8 @@ describe('bloqueio por construção', () => {
     const ui = [...files].filter((f) => f.startsWith('ui/'));
     expect(ui).toEqual(['ui/dom.ts']);
     // e, da rede, só o store (que nunca conecta): nem o cliente das rotas do World (net/world.ts) nem o stream
-    expect([...files].filter((f) => f.startsWith('net/')).sort()).toEqual(['net/store.ts']);
+    // (o store também importa access.ts e poll.ts, puros: só leem o acesso e comparam snapshots; o modo de consulta
+    // periódica do tablero n8n usa os dois, mas a cena Visita nunca chama connect()).
+    expect([...files].filter((f) => f.startsWith('net/')).sort()).toEqual(['net/access.ts', 'net/poll.ts', 'net/store.ts']);
   });
 });

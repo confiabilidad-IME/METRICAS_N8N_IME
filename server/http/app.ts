@@ -7,16 +7,24 @@
 //   GET /api/stream                       → SSE: snapshot | feed | notice
 //   GET /api/audit[?desde=&hasta=]        → AuditSnapshot (sin parámetros: el del sondeo; con ellos: consulta puntual a n8n)
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import type { AccessInfo } from '../../shared/types';
+import type { AccessInfo, OfficeSnapshot } from '../../shared/types';
 import { AuditFetchError, isIsoDay } from '../audit/client';
 import type { AuditPoller } from '../audit/poller';
 import type { N8nOffice } from '../model/n8n-office';
 import { isLoopbackHost } from './guard';
-import type { Hub } from './sse';
+
+/**
+ * De dónde sale el snapshot. El servidor normal usa el Hub (SSE: además puede abrir /api/stream); en Vercel no hay
+ * proceso permanente ni SSE, así que solo existe `current` y la página consulta /api/snapshot cada pocos segundos.
+ */
+export interface SnapshotSource {
+  current(): OfficeSnapshot;
+  attach?(req: IncomingMessage, res: ServerResponse): void;
+}
 
 export interface ApiDeps {
   office: N8nOffice;
-  hub: Hub;
+  hub: SnapshotSource;
   poller: AuditPoller;
   version: string;
   demo: boolean;
@@ -56,7 +64,8 @@ export function createApi(deps: ApiDeps): (req: IncomingMessage, res: ServerResp
     }
     if (path === '/api/access') {
       const local = isLoopbackHost(req.headers.host);
-      const access: AccessInfo = { remote: false, local, permissions: false, messages: false, terminal: false, spawn: false, world: false };
+      // `polling`: sin SSE (Vercel), la página consulta /api/snapshot periódicamente en vez de abrir /api/stream.
+      const access: AccessInfo = { remote: false, local, permissions: false, messages: false, terminal: false, spawn: false, world: false, ...(deps.hub.attach ? {} : { polling: true }) };
       sendJson(res, 200, access);
       return true;
     }
@@ -65,7 +74,8 @@ export function createApi(deps: ApiDeps): (req: IncomingMessage, res: ServerResp
       return true;
     }
     if (path === '/api/stream') {
-      deps.hub.attach(req, res);
+      if (deps.hub.attach) deps.hub.attach(req, res);
+      else sendJson(res, 404, { error: 'tiempo real no disponible en este servidor: usa /api/snapshot' });
       return true;
     }
     if (path === '/api/audit') {

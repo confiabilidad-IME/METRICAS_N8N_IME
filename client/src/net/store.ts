@@ -8,6 +8,8 @@ import type { AppearanceParts } from '../../../shared/appearance';
 import type { Activity, AgentDetail, AgentInfo, FeedItem, Notice, OfficeSnapshot, OutboxMessage, PermissionDecision, PermissionRequestInfo, RoomInfo } from '../../../shared/types';
 import { DemoSimulator } from '../../../shared/demo/simulator';
 import { tr } from '../../../shared/i18n';
+import { access } from './access';
+import { diffFeed, diffNotices, POLL_MS } from './poll';
 
 export type ConnectionState = 'connecting' | 'open' | 'closed' | 'mock';
 
@@ -95,6 +97,9 @@ export class OfficeStore {
   private agentIndex = new Map<string, AgentInfo>();
   private roomIndex = new Map<string, RoomInfo>();
   private source: EventSourceLike | null = null;
+  /** Modo consulta periódica (sin SSE): ver startPolling. */
+  private polling = false;
+  private pollInFlight = false;
   private mockTimer: ReturnType<typeof setInterval> | null = null;
   private readonly search: string;
   private readonly openStream: (url: string) => EventSourceLike;
@@ -128,6 +133,8 @@ export class OfficeStore {
     if (!this.stopped) return;
     this.stopped = false;
     if (this.mock) return this.startMock();
+    // Sin proceso permanente (Vercel) el servidor lo dice en /api/access y no hay SSE: se consulta /api/snapshot.
+    if (access().polling) return this.startPolling();
     this.startSSE();
   }
 
@@ -135,6 +142,7 @@ export class OfficeStore {
     this.stopped = true;
     if (typeof removeEventListener === 'function') removeEventListener('online', this.onOnline);
     this.clearRetry();
+    this.polling = false;
     this.closeSource();
     if (this.mockTimer) clearInterval(this.mockTimer);
     this.mockTimer = null;
@@ -146,7 +154,8 @@ export class OfficeStore {
     this.clearRetry();
     this.closeSource();
     this.stopped = false;
-    this.startSSE();
+    if (this.polling) void this.pollOnce();
+    else this.startSSE();
   }
 
   /** Quando será a próxima tentativa automática de reconexão (epoch ms), ou null. */
@@ -469,6 +478,53 @@ export class OfficeStore {
       const n = this.parse<Notice>(ev, 'aviso');
       if (n) this.emit('notice', n);
     });
+  }
+
+  /**
+   * Consulta periódica: pide /api/snapshot cada POLL_MS. 401 = la sesión venció (vuelve a /login). Si falla, reintenta con
+   * espera creciente, igual que la reconexión del SSE. El feed y los avisos se deducen comparando con el snapshot anterior.
+   */
+  private startPolling(): void {
+    this.polling = true;
+    if (typeof addEventListener === 'function') addEventListener('online', this.onOnline);
+    this.setConnection('connecting');
+    void this.pollOnce();
+  }
+
+  private async pollOnce(): Promise<void> {
+    if (this.stopped || this.pollInFlight) return;
+    this.pollInFlight = true;
+    this.clearRetry();
+    let ok = false;
+    try {
+      const res = await fetch('/api/snapshot', { credentials: 'same-origin', cache: 'no-store' });
+      if (res.status === 401) {
+        if (typeof location !== 'undefined') location.assign('/login');
+        return;
+      }
+      if (!res.ok) throw new Error(`http ${res.status}`);
+      const snap = (await res.json()) as OfficeSnapshot;
+      const prev = this.liveSnapshot;
+      this.attempts = 0;
+      this.setConnection('open');
+      this.applySnapshot(snap);
+      this.applyFeed(diffFeed(prev, snap));
+      for (const n of diffNotices(prev, snap, Date.now())) this.emit('notice', n);
+      ok = true;
+    } catch (err) {
+      console.warn('[store] consulta de /api/snapshot fallida', err);
+      this.setConnection('closed');
+    } finally {
+      this.pollInFlight = false;
+    }
+    if (this.stopped) return;
+    const delay = ok ? POLL_MS : reconnectDelay(this.attempts++);
+    this.retryAt = ok ? null : Date.now() + delay;
+    this.retryTimer = setTimeout(() => {
+      this.retryTimer = null;
+      this.retryAt = null;
+      void this.pollOnce();
+    }, delay);
   }
 
   private closeSource(): void {

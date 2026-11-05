@@ -399,6 +399,11 @@ export interface AccessInfo {
    * com Host local. Ausente em servidores antigos.
    */
   world?: boolean;
+  /**
+   * El servidor no abre /api/stream (Vercel, sin proceso permanente): la página consulta GET /api/snapshot cada pocos
+   * segundos. Ausente = tiempo real por SSE.
+   */
+  polling?: boolean;
 }
 
 export interface FeedItem {

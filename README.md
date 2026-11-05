@@ -80,9 +80,25 @@ la sesión es una cookie `HttpOnly` firmada con HMAC. Tras 5 intentos fallidos e
   `AUDIT_TRUST_PROXY=1` y `AUDIT_COOKIE_SECURE=1` detrás de un proxy HTTPS. Ver `env.example`.
 - Si no hay ningún usuario activo, el servidor **se niega a arrancar** (nunca queda abierto por error).
 
-### Publicarlo
+### Publicarlo en Vercel
 
-Es un servidor Node con conexión en tiempo real y sondeo a n8n: necesita un proceso que siga corriendo (Render, Railway, Fly.io,
-un VPS o Docker), con `npm run build && npm start`, `AUDIT_HOST=0.0.0.0` y las variables de `env.example` en el panel del
-hosting. **No funciona como sitio estático en Vercel** (daría 404 y, aunque se sirviera la página, sin servidor no hay datos).
-Pon siempre HTTPS delante: sin él, las contraseñas viajan en claro.
+El repo incluye `vercel.json` y la función `api/index.js`: la página sale como archivos estáticos (`dist/client`) y toda la
+API (`/api/*`) y `/login` pasan por esa función, con el mismo login. Diferencias con el servidor Node: **no hay tiempo real**; la
+página consulta `/api/snapshot` cada 30 s y el servidor refresca n8n si su dato tiene más de 20 s.
+
+1. En Vercel: importa el repositorio. `vercel.json` ya fija build (`npm run build:vercel`) y carpeta de salida (`dist/client`);
+   deja el *Framework Preset* en "Other".
+2. En **Settings → Environment Variables** define: `N8N_BASE_URL`, `N8N_API_KEY`, `N8N_PROJECT_ID`, `N8N_AUDIT_WEBHOOK_PATH`,
+   `N8N_AUDIT_TOKEN`, `APP_TIMEZONE` y **`AUDIT_SESSION_SECRET`** (obligatorio, ≥ 32 caracteres aleatorios; sin él la función
+   responde 500 diciéndolo). Para otros usuarios además de los de `users.default.json`: `AUDIT_USERS` (ver `npm run user:hash`).
+3. Despliega. Nunca subas el `.env`.
+
+`api/index.js` es un archivo **generado y versionado** (Vercel detecta las funciones al clonar, antes del build). Si cambias
+código del servidor, ejecuta `npm run build:api` y sube también `api/index.js`; una prueba (`npm test`) falla si quedó desactualizado.
+Limitaciones: el límite de intentos de login vive en la memoria de cada instancia (más laxo que en un servidor único: usa
+contraseñas largas) y el plan gratuito limita la duración de las funciones.
+
+### Publicarlo en un servidor que corre siempre (Render, Railway, VPS, Docker)
+
+Con `npm run build && npm start`, `AUDIT_HOST=0.0.0.0` y las variables de `env.example`. Aquí sí hay tiempo real (SSE). Pon
+siempre HTTPS delante: sin él, las contraseñas viajan en claro.

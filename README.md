@@ -74,7 +74,7 @@ la sesión es una cookie `HttpOnly` firmada con HMAC. Tras 5 intentos fallidos e
 - **Usuarios por defecto:** `admin` y `gerencia`, en `users.default.json` (solo hashes, se versiona). Sus contraseñas iniciales
   están en `credenciales-iniciales.txt` (ignorado por git): léelas, cámbialas y borra el archivo.
 - **Roles:** `admin` ve todas las pestañas del panel de Auditoría. `gerencia` no ve la pestaña **Técnico** (flujos, ejecuciones,
-  errores y estado de servicios); sí ve **Cotizaciones** y **Facturación**. Es un cambio de la interfaz, no un control de
+  errores y estado de servicios); sí ve **Cotizaciones**, **Facturación** y **Portafolio** (AUD06, envío de portafolio a clientes inactivos). Es un cambio de la interfaz, no un control de
   acceso a los datos. El usuario llamado `gerencia` es `gerencia` por defecto (también tras cambiarle la contraseña); para otro
   usuario añade `"rol": "gerencia"` en `users.json` o `AUDIT_USERS`.
 - **Cambiar una contraseña / agregar usuarios:** `npm run user:add -- <usuario>` (guarda en `users.json`, ignorado por git).

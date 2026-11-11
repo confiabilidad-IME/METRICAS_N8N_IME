@@ -190,6 +190,50 @@ function normalizeAudit(raw) {
       })).filter((c) => c.cliente || c.nit).sort((a, c) => c.saldo_moroso - a.saldo_moroso)
     };
   }
+  let portafolio_diario;
+  if ("portafolio_diario" in b) {
+    portafolio_diario = rows(b.portafolio_diario).map((r) => ({
+      fecha: day(r.fecha),
+      envios_dia: num(r.envios_dia),
+      envios_7d: num(r.envios_7d),
+      envios_30d: num(r.envios_30d),
+      envios_total: num(r.envios_total),
+      respondidos_30d: num(r.respondidos_30d),
+      rebotados_30d: num(r.rebotados_30d),
+      pendientes_30d: num(r.pendientes_30d),
+      tasa_respuesta_30d: num(r.tasa_respuesta_30d),
+      respuestas_dia: num(r.respuestas_dia),
+      rebotes_dia: num(r.rebotes_dia),
+      autorrespuestas_dia: num(r.autorrespuestas_dia),
+      respuestas_7d: num(r.respuestas_7d),
+      intencion_interesado_30d: num(r.intencion_interesado_30d),
+      intencion_solicita_cotizacion_30d: num(r.intencion_solicita_cotizacion_30d),
+      intencion_no_interesado_30d: num(r.intencion_no_interesado_30d),
+      intencion_remitir_30d: num(r.intencion_remitir_30d),
+      intencion_otro_30d: num(r.intencion_otro_30d),
+      oportunidades_30d: num(r.oportunidades_30d),
+      tasa_oportunidad_30d: num(r.tasa_oportunidad_30d),
+      respuestas_sin_revisar: num(r.respuestas_sin_revisar),
+      clientes_inactivos_total: num(r.clientes_inactivos_total),
+      clientes_no_contactar: num(r.clientes_no_contactar),
+      clientes_contactados_mes: num(r.clientes_contactados_mes)
+    })).filter((p) => p.fecha).sort((a, c) => a.fecha < c.fecha ? -1 : a.fecha > c.fecha ? 1 : 0);
+  }
+  let portafolio_respuestas_recientes;
+  if (b.portafolio_respuestas_recientes && typeof b.portafolio_respuestas_recientes === "object") {
+    const m = b.portafolio_respuestas_recientes;
+    portafolio_respuestas_recientes = {
+      fecha: optStr(m.fecha) ? day(m.fecha) : null,
+      respuestas: rows(m.respuestas).map((r) => ({
+        fecha: optStr(r.fecha) ? day(r.fecha) : "",
+        cliente: str(r.cliente),
+        correo: str(r.correo),
+        intencion: str(r.intencion),
+        resumen: str(r.resumen),
+        revisada: bool(r.revisada)
+      })).filter((r) => r.cliente || r.correo).sort((a, c) => a.fecha < c.fecha ? 1 : a.fecha > c.fecha ? -1 : 0)
+    };
+  }
   return {
     generado_en: str(b.generado_en) || (/* @__PURE__ */ new Date()).toISOString(),
     rango: { desde: optStr(rango.desde) ?? null, hasta: optStr(rango.hasta) ?? null },
@@ -199,7 +243,9 @@ function normalizeAudit(raw) {
     cotizaciones_definidas,
     ...cotizaciones_revision ? { cotizaciones_revision } : {},
     ...cartera_diaria ? { cartera_diaria } : {},
-    ...cartera_morosos ? { cartera_morosos } : {}
+    ...cartera_morosos ? { cartera_morosos } : {},
+    ...portafolio_diario ? { portafolio_diario } : {},
+    ...portafolio_respuestas_recientes ? { portafolio_respuestas_recientes } : {}
   };
 }
 function isIsoDay(s) {
@@ -10639,7 +10685,41 @@ function demoAudit(now, timezone, desde) {
       { nit: "800000003", cliente: "Colpapel (demo)", facturas: 7, saldo_total: 37701930, saldo_moroso: 8606159, mora_max_dias: 78, cartas_enviadas: 1, revision_manual: true }
     ]
   };
-  return { generado_en: new Date(now).toISOString(), rango: { desde: from, hasta: null }, metricas_diarias, ejecuciones_diarias, servicios, cotizaciones_definidas, cotizaciones_revision: revision, cartera_diaria, cartera_morosos };
+  const portafolio_diario = days.map((fecha) => ({
+    fecha,
+    envios_dia: Math.floor(rand() * 15),
+    envios_7d: 62,
+    envios_30d: 240,
+    envios_total: 410,
+    respondidos_30d: 31,
+    rebotados_30d: 18,
+    pendientes_30d: 191,
+    tasa_respuesta_30d: 0.1292,
+    respuestas_dia: Math.floor(rand() * 4),
+    rebotes_dia: Math.floor(rand() * 3),
+    autorrespuestas_dia: Math.floor(rand() * 3),
+    respuestas_7d: 9,
+    intencion_interesado_30d: 7,
+    intencion_solicita_cotizacion_30d: 4,
+    intencion_no_interesado_30d: 12,
+    intencion_remitir_30d: 3,
+    intencion_otro_30d: 5,
+    oportunidades_30d: 11,
+    tasa_oportunidad_30d: 0.0458,
+    respuestas_sin_revisar: 6,
+    clientes_inactivos_total: 380,
+    clientes_no_contactar: 14,
+    clientes_contactados_mes: 96
+  }));
+  const portafolio_respuestas_recientes = {
+    fecha: hoy,
+    respuestas: [
+      { fecha: hoy, cliente: "Inversiones Andina (demo)", correo: "compras@andina.example", intencion: "SOLICITA_COTIZACION", resumen: "Pide cotizaci\xF3n de 3 equipos del portafolio.", revisada: false },
+      { fecha: days[days.length - 2] ?? hoy, cliente: "Textiles del Norte (demo)", correo: "gerencia@textiles.example", intencion: "INTERESADO", resumen: "Quiere agendar una llamada la pr\xF3xima semana.", revisada: true },
+      { fecha: days[days.length - 3] ?? hoy, cliente: "Agroindustrial Sur (demo)", correo: "info@agrosur.example", intencion: "NO_INTERESADO", resumen: "Por ahora no tiene presupuesto.", revisada: true }
+    ]
+  };
+  return { generado_en: new Date(now).toISOString(), rango: { desde: from, hasta: null }, metricas_diarias, ejecuciones_diarias, servicios, cotizaciones_definidas, cotizaciones_revision: revision, cartera_diaria, cartera_morosos, portafolio_diario, portafolio_respuestas_recientes };
 }
 
 // server/audit/live.ts

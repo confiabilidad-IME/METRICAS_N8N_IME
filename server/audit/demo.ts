@@ -1,5 +1,5 @@
 // Datos ficticios con la forma de AUD04 (AUDIT_DEMO=1 y pruebas). Determinístico para un mismo `now`: sin Math.random.
-import type { AuditCarteraDay, AuditData, AuditDayMetrics, AuditExecutionDay, AuditQuote, AuditReviewQuote, AuditService } from '../../shared/audit';
+import type { AuditCarteraDay, AuditPortafolioDay, AuditData, AuditDayMetrics, AuditExecutionDay, AuditQuote, AuditReviewQuote, AuditService } from '../../shared/audit';
 import { hash32, mulberry32 } from '../../shared/hash';
 import { addDays, dayIn } from './derive';
 
@@ -138,5 +138,40 @@ export function demoAudit(now: number, timezone: string, desde?: string): AuditD
       { nit: '800000003', cliente: 'Colpapel (demo)', facturas: 7, saldo_total: 37_701_930, saldo_moroso: 8_606_159, mora_max_dias: 78, cartas_enviadas: 1, revision_manual: true },
     ],
   };
-  return { generado_en: new Date(now).toISOString(), rango: { desde: from, hasta: null }, metricas_diarias, ejecuciones_diarias, servicios, cotizaciones_definidas, cotizaciones_revision: revision, cartera_diaria, cartera_morosos };
+  // Portafolio a clientes inactivos ficticio (AUD06): las intenciones suman las respuestas humanas de 30 d.
+  const portafolio_diario: AuditPortafolioDay[] = days.map((fecha) => ({
+    fecha,
+    envios_dia: Math.floor(rand() * 15),
+    envios_7d: 62,
+    envios_30d: 240,
+    envios_total: 410,
+    respondidos_30d: 31,
+    rebotados_30d: 18,
+    pendientes_30d: 191,
+    tasa_respuesta_30d: 0.1292,
+    respuestas_dia: Math.floor(rand() * 4),
+    rebotes_dia: Math.floor(rand() * 3),
+    autorrespuestas_dia: Math.floor(rand() * 3),
+    respuestas_7d: 9,
+    intencion_interesado_30d: 7,
+    intencion_solicita_cotizacion_30d: 4,
+    intencion_no_interesado_30d: 12,
+    intencion_remitir_30d: 3,
+    intencion_otro_30d: 5,
+    oportunidades_30d: 11,
+    tasa_oportunidad_30d: 0.0458,
+    respuestas_sin_revisar: 6,
+    clientes_inactivos_total: 380,
+    clientes_no_contactar: 14,
+    clientes_contactados_mes: 96,
+  }));
+  const portafolio_respuestas_recientes: AuditData['portafolio_respuestas_recientes'] = {
+    fecha: hoy,
+    respuestas: [
+      { fecha: hoy, cliente: 'Inversiones Andina (demo)', correo: 'compras@andina.example', intencion: 'SOLICITA_COTIZACION', resumen: 'Pide cotización de 3 equipos del portafolio.', revisada: false },
+      { fecha: days[days.length - 2] ?? hoy, cliente: 'Textiles del Norte (demo)', correo: 'gerencia@textiles.example', intencion: 'INTERESADO', resumen: 'Quiere agendar una llamada la próxima semana.', revisada: true },
+      { fecha: days[days.length - 3] ?? hoy, cliente: 'Agroindustrial Sur (demo)', correo: 'info@agrosur.example', intencion: 'NO_INTERESADO', resumen: 'Por ahora no tiene presupuesto.', revisada: true },
+    ],
+  };
+  return { generado_en: new Date(now).toISOString(), rango: { desde: from, hasta: null }, metricas_diarias, ejecuciones_diarias, servicios, cotizaciones_definidas, cotizaciones_revision: revision, cartera_diaria, cartera_morosos, portafolio_diario, portafolio_respuestas_recientes };
 }

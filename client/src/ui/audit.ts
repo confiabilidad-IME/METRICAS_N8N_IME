@@ -2,7 +2,7 @@
 // pipeline, correos, seguimientos). Los datos llegan en vivo con el snapshot (`snapshot.audit`, rango por defecto); otro
 // rango pide GET /api/audit?desde=. Todo se pinta con textContent (los textos vienen de n8n: nunca innerHTML).
 // El modelo (formatos, orden, agregaciones) es puro y se prueba en ui/audit-model.test.ts.
-import type { AuditAlert, AuditExecutionDay, AuditMoroso, AuditQuote, AuditReviewQuote, AuditService, AuditSnapshot } from '../../../shared/audit';
+import type { AuditAlert, AuditExecutionDay, AuditMoroso, AuditPortafolioRespuesta, AuditQuote, AuditReviewQuote, AuditService, AuditSnapshot } from '../../../shared/audit';
 import type { UiComponent, UiContext } from './context';
 import { h, iconButton, setHidden, setText } from './dom';
 import { ICONS } from './icons';
@@ -16,6 +16,7 @@ import {
   execColumns,
   isAuditTab,
   latestCartera,
+  prettyLabel,
   moneyFull,
   moraBuckets,
   moneyShort,
@@ -308,11 +309,12 @@ export class AuditPanel implements UiComponent {
     this.panels.get('tecnico')!.replaceChildren(...this.technical(audit, alerts.tecnico, now));
     this.panels.get('cotizaciones')!.replaceChildren(...this.quotes(audit, alerts.cotizaciones, now));
     this.panels.get('facturacion')!.replaceChildren(...this.billing(audit));
+    this.panels.get('portafolio')!.replaceChildren(...this.portfolio(audit));
     this.renderBadges(audit);
   }
 
   private renderBadges(audit: AuditSnapshot | undefined): void {
-    const b = audit?.data && audit.kpis ? tabBadges(audit.data.servicios, audit.alertas, audit.data.cotizaciones_revision?.length ?? audit.kpis.enRevisionManual, latestCartera(audit.data.cartera_diaria)?.acuerdos_vencidos_sin_pago ?? 0) : undefined;
+    const b = audit?.data && audit.kpis ? tabBadges(audit.data.servicios, audit.alertas, audit.data.cotizaciones_revision?.length ?? audit.kpis.enRevisionManual, latestCartera(audit.data.cartera_diaria)?.acuerdos_vencidos_sin_pago ?? 0, latestCartera(audit.data.portafolio_diario)?.respuestas_sin_revisar ?? 0) : undefined;
     for (const [id, { badge, btn }] of this.tabBtns) {
       const v = b?.[id];
       setHidden(badge, !v || v.level === 'none');
@@ -444,6 +446,96 @@ export class AuditPanel implements UiComponent {
       this.section(`Clientes morosos (${morosos.length})`, this.morososTable(morosos)),
     );
     return out;
+  }
+
+  /** Pestaña Portafolio: envíos a clientes inactivos, respuestas, intenciones y oportunidades (AUD06). */
+  private portfolio(audit: AuditSnapshot): HTMLElement[] {
+    const data = audit.data!;
+    const p = latestCartera(data.portafolio_diario);
+    if (!p) {
+      const text = data.portafolio_diario
+        ? 'Audit_Portafolio_Diario está vacío en el rango: AUD06 aún no ha escrito datos.'
+        : 'AUD04 no está enviando el portafolio. Publica la versión de AUD04 que incluye "Leer Audit_Portafolio_Diario" (AUD06 ya lo calcula).';
+      return [h('p', { class: 'ui-day__empty', text })];
+    }
+    const respuestas = data.portafolio_respuestas_recientes?.respuestas ?? [];
+    const intenciones: [string, number][] = [
+      ['Solicita cotización', p.intencion_solicita_cotizacion_30d],
+      ['Interesado', p.intencion_interesado_30d],
+      ['Remite a otra persona', p.intencion_remitir_30d],
+      ['No interesado', p.intencion_no_interesado_30d],
+      ['Otro', p.intencion_otro_30d],
+    ];
+    const totalIntenciones = intenciones.reduce((n, [, v]) => n + v, 0);
+    return [
+      this.section(
+        `Portafolio a clientes inactivos al ${dayShort(p.fecha)}`,
+        h(
+          'div',
+          { class: 'ui-audit__cards' },
+          this.card('Envíos hoy', count(p.envios_dia)),
+          this.card('Envíos 7 d', count(p.envios_7d)),
+          this.card('Envíos 30 d', count(p.envios_30d), '', `Total histórico: ${count(p.envios_total)}`),
+          this.card('Tasa de respuesta 30 d', percent(p.tasa_respuesta_30d), '', `${count(p.respondidos_30d)} respondidos, ${count(p.rebotados_30d)} rebotados, ${count(p.pendientes_30d)} sin respuesta`),
+          this.card('Oportunidades 30 d', count(p.oportunidades_30d), p.oportunidades_30d > 0 ? 'is-won' : '', `${percent(p.tasa_oportunidad_30d)} de los envíos (interesados + solicitudes de cotización)`),
+          this.card('Respuestas por revisar', count(p.respuestas_sin_revisar), p.respuestas_sin_revisar > 0 ? 'is-warn' : ''),
+        ),
+      ),
+      this.section(
+        'Hoy',
+        h(
+          'div',
+          { class: 'ui-audit__cards' },
+          this.card('Respuestas hoy', count(p.respuestas_dia), '', `Últimos 7 d: ${count(p.respuestas_7d)}`),
+          this.card('Rebotes hoy', count(p.rebotes_dia), p.rebotes_dia > 0 ? 'is-warn' : ''),
+          this.card('Autorrespuestas hoy', count(p.autorrespuestas_dia)),
+        ),
+      ),
+      this.section(
+        'Intención de las respuestas (30 d)',
+        h(
+          'ul',
+          { class: 'ui-audit__alerts' },
+          ...intenciones.map(([label, v]) => h('li', { class: 'ui-audit__alert' }, h('span', { text: `${label}: ${count(v)}${totalIntenciones ? ` (${percent(v / totalIntenciones)})` : ''}` }))),
+        ),
+      ),
+      this.section(
+        'Clientes inactivos',
+        h(
+          'div',
+          { class: 'ui-audit__cards' },
+          this.card('Clientes inactivos', count(p.clientes_inactivos_total)),
+          this.card('Contactados este mes', count(p.clientes_contactados_mes)),
+          this.card('No contactar', count(p.clientes_no_contactar)),
+        ),
+      ),
+      this.section(`Respuestas recientes (${respuestas.length})`, this.portfolioTable(respuestas)),
+    ];
+  }
+
+  private portfolioTable(list: readonly AuditPortafolioRespuesta[]): HTMLElement {
+    if (!list.length) return h('p', { class: 'ui-day__empty', text: 'No hay respuestas humanas recientes.' });
+    return h(
+      'table',
+      { class: 'ui-audit__table' },
+      h('thead', {}, h('tr', {}, h('th', { text: 'Fecha' }), h('th', { text: 'Cliente' }), h('th', { text: 'Correo' }), h('th', { text: 'Intención' }), h('th', { text: 'Resumen' }), h('th', { text: 'Estado' }))),
+      h(
+        'tbody',
+        {},
+        ...list.map((r) =>
+          h(
+            'tr',
+            {},
+            h('td', { text: r.fecha ? dayShort(r.fecha) : '—' }),
+            h('td', { text: r.cliente || '—' }),
+            h('td', { text: r.correo || '—' }),
+            h('td', { text: prettyLabel(r.intencion) }),
+            h('td', { text: r.resumen || '—' }),
+            h('td', {}, r.revisada ? '—' : h('span', { class: 'ui-audit__pill is-error', text: 'Por revisar' })),
+          ),
+        ),
+      ),
+    );
   }
 
   private morososTable(list: readonly AuditMoroso[]): HTMLElement {

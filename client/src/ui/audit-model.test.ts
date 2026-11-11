@@ -134,7 +134,7 @@ describe('errorRows', () => {
 
 describe('pestañas', () => {
   it('cada pestaña se titula por su tema', () => {
-    expect(TABS.map((x) => x.label)).toEqual(['Técnico', 'Cotizaciones', 'Facturación']);
+    expect(TABS.map((x) => x.label)).toEqual(['Técnico', 'Cotizaciones', 'Facturación', 'Portafolio']);
   });
   it('reparte las alertas: revisión manual es de cotizaciones, lo demás técnico', () => {
     const r = splitAlerts([{ id: 'ultima-fallida:a' }, { id: 'revision-manual:global' }, { id: 'servicios-vacio:global' }]);
@@ -144,18 +144,22 @@ describe('pestañas', () => {
   it('insignias: flujos con error > alertas técnicas > nada; cotizaciones cuenta la revisión manual', () => {
     const bad = svc('a', { estado_ultima: 'error' });
     const none = { count: 0, level: 'none' };
-    expect(tabBadges([bad, svc('b')], [], 0)).toEqual({ tecnico: { count: 1, level: 'error' }, cotizaciones: none, facturacion: none });
-    expect(tabBadges([svc('b')], [{ id: 'servicios-vacio:global' }], 5)).toEqual({ tecnico: { count: 1, level: 'warn' }, cotizaciones: { count: 5, level: 'warn' }, facturacion: none });
+    expect(tabBadges([bad, svc('b')], [], 0)).toEqual({ tecnico: { count: 1, level: 'error' }, cotizaciones: none, facturacion: none, portafolio: none });
+    expect(tabBadges([svc('b')], [{ id: 'servicios-vacio:global' }], 5)).toEqual({ tecnico: { count: 1, level: 'warn' }, cotizaciones: { count: 5, level: 'warn' }, facturacion: none, portafolio: none });
     expect(tabBadges([], [], 0).tecnico.level).toBe('none');
   });
   it('visibleTabs: gerencia (o un rol desconocido) no ve la pestaña técnica', () => {
-    expect(visibleTabs('admin').map((t) => t.id)).toEqual(['tecnico', 'cotizaciones', 'facturacion']);
-    expect(visibleTabs('gerencia').map((t) => t.id)).toEqual(['cotizaciones', 'facturacion']);
+    expect(visibleTabs('admin').map((t) => t.id)).toEqual(['tecnico', 'cotizaciones', 'facturacion', 'portafolio']);
+    expect(visibleTabs('gerencia').map((t) => t.id)).toEqual(['cotizaciones', 'facturacion', 'portafolio']);
     expect(visibleTabs(undefined).some((t) => t.id === 'tecnico')).toBe(false);
   });
   it('facturación: la insignia cuenta acuerdos de pago vencidos sin pago', () => {
     expect(tabBadges([], [], 0, 2).facturacion).toEqual({ count: 2, level: 'warn' });
     expect(tabBadges([], [], 0).facturacion.level).toBe('none');
+  });
+  it('portafolio: la insignia cuenta las respuestas por revisar', () => {
+    expect(tabBadges([], [], 0, 0, 6).portafolio).toEqual({ count: 6, level: 'warn' });
+    expect(tabBadges([], [], 0).portafolio.level).toBe('none');
   });
   it('latestCartera toma la última fila; moraBuckets reparte la vencida', () => {
     expect(latestCartera([{ fecha: '2026-11-10' }, { fecha: '2026-11-11' }])?.fecha).toBe('2026-11-11');

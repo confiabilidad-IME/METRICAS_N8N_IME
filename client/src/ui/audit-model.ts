@@ -207,16 +207,17 @@ export function errorRows(services: readonly AuditService[], now: number, n8nUrl
     .sort((a, b) => (services.find((s) => s.workflow_id === b.id)?.ultimo_error?.at ?? '').localeCompare(services.find((s) => s.workflow_id === a.id)?.ultimo_error?.at ?? ''));
 }
 
-export type AuditTab = 'tecnico' | 'cotizaciones' | 'facturacion';
+export type AuditTab = 'tecnico' | 'cotizaciones' | 'facturacion' | 'portafolio';
 
 /** Cada pestaña se titula por lo que mide; una métrica de otro tema (salidas…) sumaría su propia pestaña. */
 export const TABS: readonly { id: AuditTab; label: string; hint: string }[] = [
   { id: 'tecnico', label: 'Técnico', hint: 'Errores de flujos, ejecuciones y servicios' },
   { id: 'cotizaciones', label: 'Cotizaciones', hint: 'Cotizaciones definidas, pipeline y revisión manual' },
   { id: 'facturacion', label: 'Facturación', hint: 'Cartera, mora, clientes morosos, recordatorios y acuerdos de pago' },
+  { id: 'portafolio', label: 'Portafolio', hint: 'Envío de portafolio a clientes inactivos: envíos, respuestas, intenciones y oportunidades' },
 ];
 
-/** Pestañas que ve cada rol: gerencia no ve información técnica de los flujos (el servidor tampoco se la envía). */
+/** Pestañas que ve cada rol: gerencia no ve la pestaña técnica (solo se oculta en la interfaz). */
 export function visibleTabs(role: string | undefined): readonly { id: AuditTab; label: string; hint: string }[] {
   return role === 'admin' ? TABS : TABS.filter((t) => t.id !== 'tecnico');
 }
@@ -254,13 +255,14 @@ export interface TabBadge {
 }
 
 /** Insignia de cada pestaña: la técnica cuenta flujos con error o alertas técnicas; cotizaciones, las que están en revisión. */
-export function tabBadges(services: readonly AuditService[], alerts: readonly { id: string }[], enRevisionManual: number, acuerdosVencidos = 0): Record<AuditTab, TabBadge> {
+export function tabBadges(services: readonly AuditService[], alerts: readonly { id: string }[], enRevisionManual: number, acuerdosVencidos = 0, respuestasPortafolio = 0): Record<AuditTab, TabBadge> {
   const failing = errorRows(services, 0).length;
   const techAlerts = splitAlerts(alerts).tecnico.length;
   return {
     tecnico: failing > 0 ? { count: failing, level: 'error' } : techAlerts > 0 ? { count: techAlerts, level: 'warn' } : { count: 0, level: 'none' },
     cotizaciones: enRevisionManual > 0 ? { count: enRevisionManual, level: 'warn' } : { count: 0, level: 'none' },
     facturacion: acuerdosVencidos > 0 ? { count: acuerdosVencidos, level: 'warn' } : { count: 0, level: 'none' },
+    portafolio: respuestasPortafolio > 0 ? { count: respuestasPortafolio, level: 'warn' } : { count: 0, level: 'none' },
   };
 }
 

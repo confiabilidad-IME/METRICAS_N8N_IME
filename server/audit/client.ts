@@ -1,5 +1,5 @@
 // Cliente del flujo AUD04 (GET {N8N_BASE_URL}/webhook/audit/metricas). Valida y normaliza la respuesta.
-import type { AuditCarteraDay, AuditData, AuditDayMetrics, AuditExecutionDay, AuditQuote, AuditReviewQuote, AuditService } from '../../shared/audit';
+import type { AuditCarteraDay, AuditPortafolioDay, AuditData, AuditDayMetrics, AuditExecutionDay, AuditQuote, AuditReviewQuote, AuditService } from '../../shared/audit';
 import type { AuditConfig } from './config';
 
 /** Falla de la consulta a n8n; `message` es seguro para mostrar (sin token ni URL con query). */
@@ -181,6 +181,58 @@ export function normalizeAudit(raw: unknown): AuditData {
     };
   }
 
+  // Portafolio a clientes inactivos (AUD06 vía AUD04): solo si el flujo lo trae.
+  let portafolio_diario: AuditPortafolioDay[] | undefined;
+  if ('portafolio_diario' in b) {
+    portafolio_diario = rows(b.portafolio_diario)
+      .map((r) => ({
+        fecha: day(r.fecha),
+        envios_dia: num(r.envios_dia),
+        envios_7d: num(r.envios_7d),
+        envios_30d: num(r.envios_30d),
+        envios_total: num(r.envios_total),
+        respondidos_30d: num(r.respondidos_30d),
+        rebotados_30d: num(r.rebotados_30d),
+        pendientes_30d: num(r.pendientes_30d),
+        tasa_respuesta_30d: num(r.tasa_respuesta_30d),
+        respuestas_dia: num(r.respuestas_dia),
+        rebotes_dia: num(r.rebotes_dia),
+        autorrespuestas_dia: num(r.autorrespuestas_dia),
+        respuestas_7d: num(r.respuestas_7d),
+        intencion_interesado_30d: num(r.intencion_interesado_30d),
+        intencion_solicita_cotizacion_30d: num(r.intencion_solicita_cotizacion_30d),
+        intencion_no_interesado_30d: num(r.intencion_no_interesado_30d),
+        intencion_remitir_30d: num(r.intencion_remitir_30d),
+        intencion_otro_30d: num(r.intencion_otro_30d),
+        oportunidades_30d: num(r.oportunidades_30d),
+        tasa_oportunidad_30d: num(r.tasa_oportunidad_30d),
+        respuestas_sin_revisar: num(r.respuestas_sin_revisar),
+        clientes_inactivos_total: num(r.clientes_inactivos_total),
+        clientes_no_contactar: num(r.clientes_no_contactar),
+        clientes_contactados_mes: num(r.clientes_contactados_mes),
+      }))
+      .filter((p) => p.fecha)
+      .sort((a, c) => (a.fecha < c.fecha ? -1 : a.fecha > c.fecha ? 1 : 0));
+  }
+  let portafolio_respuestas_recientes: AuditData['portafolio_respuestas_recientes'];
+  if (b.portafolio_respuestas_recientes && typeof b.portafolio_respuestas_recientes === 'object') {
+    const m = b.portafolio_respuestas_recientes as Record<string, unknown>;
+    portafolio_respuestas_recientes = {
+      fecha: optStr(m.fecha) ? day(m.fecha) : null,
+      respuestas: rows(m.respuestas)
+        .map((r) => ({
+          fecha: optStr(r.fecha) ? day(r.fecha) : '',
+          cliente: str(r.cliente),
+          correo: str(r.correo),
+          intencion: str(r.intencion),
+          resumen: str(r.resumen),
+          revisada: bool(r.revisada),
+        }))
+        .filter((r) => r.cliente || r.correo)
+        .sort((a, c) => (a.fecha < c.fecha ? 1 : a.fecha > c.fecha ? -1 : 0)),
+    };
+  }
+
   return {
     generado_en: str(b.generado_en) || new Date().toISOString(),
     rango: { desde: optStr(rango.desde) ?? null, hasta: optStr(rango.hasta) ?? null },
@@ -191,6 +243,8 @@ export function normalizeAudit(raw: unknown): AuditData {
     ...(cotizaciones_revision ? { cotizaciones_revision } : {}),
     ...(cartera_diaria ? { cartera_diaria } : {}),
     ...(cartera_morosos ? { cartera_morosos } : {}),
+    ...(portafolio_diario ? { portafolio_diario } : {}),
+    ...(portafolio_respuestas_recientes ? { portafolio_respuestas_recientes } : {}),
   };
 }
 

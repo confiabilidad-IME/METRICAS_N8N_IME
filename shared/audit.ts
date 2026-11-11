@@ -154,8 +154,51 @@ export interface AuditMoroso {
 }
 
 /**
- * Rol del usuario con sesión. `admin` ve todo; `gerencia` ve solo la información de negocio (cotizaciones y facturación),
- * sin datos técnicos de los flujos (ver shared/audit-redact.ts).
+ * Una fila de Audit_Portafolio_Diario (AUD06 la actualiza cada hora): envío de portafolio a clientes inactivos.
+ * Los `*_dia` son del día; `*_7d` / `*_30d` son ventanas móviles; el resto es una foto a esa fecha.
+ */
+export interface AuditPortafolioDay {
+  fecha: string;
+  envios_dia: number;
+  envios_7d: number;
+  envios_30d: number;
+  envios_total: number;
+  respondidos_30d: number;
+  rebotados_30d: number;
+  pendientes_30d: number;
+  /** 0–1. */
+  tasa_respuesta_30d: number;
+  respuestas_dia: number;
+  rebotes_dia: number;
+  autorrespuestas_dia: number;
+  respuestas_7d: number;
+  intencion_interesado_30d: number;
+  intencion_solicita_cotizacion_30d: number;
+  intencion_no_interesado_30d: number;
+  intencion_remitir_30d: number;
+  intencion_otro_30d: number;
+  oportunidades_30d: number;
+  /** 0–1 (oportunidades / envíos de 30 d). */
+  tasa_oportunidad_30d: number;
+  respuestas_sin_revisar: number;
+  clientes_inactivos_total: number;
+  clientes_no_contactar: number;
+  clientes_contactados_mes: number;
+}
+
+/** Una respuesta humana reciente de un cliente inactivo (Audit_Portafolio_Diario.detalle_respuestas). */
+export interface AuditPortafolioRespuesta {
+  fecha: string;
+  cliente: string;
+  correo: string;
+  intencion: string;
+  resumen: string;
+  revisada: boolean;
+}
+
+/**
+ * Rol del usuario con sesión. `admin` ve todas las pestañas del modal; `gerencia` no ve la pestaña técnica de los flujos.
+ * Es una restricción de la interfaz, no del servidor.
  */
 export type AuditRole = 'admin' | 'gerencia';
 
@@ -173,6 +216,9 @@ export interface AuditData {
   /** Ausente si AUD04 aún no publica la cartera (AUD05): distinto de "cartera vacía". */
   cartera_diaria?: AuditCarteraDay[];
   cartera_morosos?: { fecha: string | null; cartera_al: string | null; clientes: AuditMoroso[] };
+  /** Ausente si AUD04 aún no publica el portafolio (AUD06). */
+  portafolio_diario?: AuditPortafolioDay[];
+  portafolio_respuestas_recientes?: { fecha: string | null; respuestas: AuditPortafolioRespuesta[] };
 }
 
 /** Indicadores de negocio y de operación calculados sobre el rango consultado. */

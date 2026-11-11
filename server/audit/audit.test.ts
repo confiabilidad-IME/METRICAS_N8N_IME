@@ -262,6 +262,22 @@ describe('cotizaciones en revisión manual', () => {
     expect(normalizeAudit({ servicios: [] }).cotizaciones_revision).toBeUndefined();
     expect(normalizeAudit({ servicios: [], cotizaciones_revision: [] }).cotizaciones_revision).toEqual([]);
   });
+  it('portafolio (AUD06): ausente si AUD04 no lo trae; ordena días y respuestas recientes', () => {
+    expect(normalizeAudit({ servicios: [] }).portafolio_diario).toBeUndefined();
+    const p = normalizeAudit({
+      servicios: [],
+      portafolio_diario: [{ fecha: '2026-11-11T00:00:00Z', envios_30d: '240', tasa_respuesta_30d: 'x' }, { fecha: '2026-11-10', envios_30d: 200 }, { envios_30d: 5 }],
+      portafolio_respuestas_recientes: {
+        fecha: '2026-11-11',
+        respuestas: [{ fecha: '2026-11-09', cliente: 'A', revisada: true }, { fecha: '2026-11-11', cliente: 'B', intencion: 'INTERESADO' }, {}],
+      },
+    });
+    expect(p.portafolio_diario?.map((r) => r.fecha)).toEqual(['2026-11-10', '2026-11-11']);
+    expect(p.portafolio_diario?.[1]).toMatchObject({ envios_30d: 240, tasa_respuesta_30d: 0 });
+    expect(p.portafolio_respuestas_recientes?.respuestas.map((r) => r.cliente)).toEqual(['B', 'A']);
+    expect(p.portafolio_respuestas_recientes?.respuestas[1].revisada).toBe(true);
+    expect(normalizeAudit({ servicios: [], portafolio_diario: [] }).portafolio_diario).toEqual([]);
+  });
   it('normaliza valores y deduplica por cotizacion_id', () => {
     const d = normalizeAudit({ servicios: [], cotizaciones_revision: [rev('COT-1'), rev('COT-1'), rev('COT-2', { valor: 'x', numero_cotizacion: '' }), { cliente: 'sin id' }] });
     expect(d.cotizaciones_revision?.map((q) => q.cotizacion_id)).toEqual(['COT-1', 'COT-2']);

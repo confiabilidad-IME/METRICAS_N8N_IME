@@ -1,5 +1,5 @@
 // Cliente del flujo AUD04 (GET {N8N_BASE_URL}/webhook/audit/metricas). Valida y normaliza la respuesta.
-import type { AuditData, AuditDayMetrics, AuditExecutionDay, AuditQuote, AuditReviewQuote, AuditService } from '../../shared/audit';
+import type { AuditCarteraDay, AuditData, AuditDayMetrics, AuditExecutionDay, AuditQuote, AuditReviewQuote, AuditService } from '../../shared/audit';
 import type { AuditConfig } from './config';
 
 /** Falla de la consulta a n8n; `message` es seguro para mostrar (sin token ni URL con query). */
@@ -123,6 +123,64 @@ export function normalizeAudit(raw: unknown): AuditData {
       .filter((q) => q.cotizacion_id && !vistas.has(q.cotizacion_id) && (vistas.add(q.cotizacion_id), true));
   }
 
+  // Cartera (AUD05 vía AUD04): solo si el flujo la trae.
+  let cartera_diaria: AuditCarteraDay[] | undefined;
+  if ('cartera_diaria' in b) {
+    cartera_diaria = rows(b.cartera_diaria)
+      .map((r) => ({
+        fecha: day(r.fecha),
+        cartera_abierta: num(r.cartera_abierta),
+        cartera_vencida: num(r.cartera_vencida),
+        pct_vencida: num(r.pct_vencida),
+        facturas_abiertas: num(r.facturas_abiertas),
+        facturas_vencidas: num(r.facturas_vencidas),
+        clientes_con_saldo: num(r.clientes_con_saldo),
+        clientes_morosos: num(r.clientes_morosos),
+        saldo_morosos: num(r.saldo_morosos),
+        mora_1_30: num(r.mora_1_30),
+        mora_31_50: num(r.mora_31_50),
+        mora_51_90: num(r.mora_51_90),
+        mora_91_mas: num(r.mora_91_mas),
+        recordatorios_enviados_dia: num(r.recordatorios_enviados_dia),
+        envios_30d: num(r.envios_30d),
+        envios_respondidos_30d: num(r.envios_respondidos_30d),
+        envios_rebotados_30d: num(r.envios_rebotados_30d),
+        envios_pendientes_30d: num(r.envios_pendientes_30d),
+        tasa_respuesta_30d: num(r.tasa_respuesta_30d),
+        respuestas_dia: num(r.respuestas_dia),
+        respuestas_por_revisar: num(r.respuestas_por_revisar),
+        cartas_enviadas_dia: num(r.cartas_enviadas_dia),
+        clientes_revision_manual: num(r.clientes_revision_manual),
+        acuerdos_vigentes: num(r.acuerdos_vigentes),
+        acuerdos_vencidos_sin_pago: num(r.acuerdos_vencidos_sin_pago),
+        valor_comprometido: num(r.valor_comprometido),
+        cartera_al: optStr(r.cartera_al),
+      }))
+      .filter((c) => c.fecha)
+      .sort((a, c) => (a.fecha < c.fecha ? -1 : a.fecha > c.fecha ? 1 : 0));
+  }
+  let cartera_morosos: AuditData['cartera_morosos'];
+  if (b.cartera_morosos && typeof b.cartera_morosos === 'object') {
+    const m = b.cartera_morosos as Record<string, unknown>;
+    cartera_morosos = {
+      fecha: optStr(m.fecha) ? day(m.fecha) : null,
+      cartera_al: optStr(m.cartera_al) ? day(m.cartera_al) : null,
+      clientes: rows(m.clientes)
+        .map((r) => ({
+          nit: str(r.nit),
+          cliente: str(r.cliente),
+          facturas: num(r.facturas),
+          saldo_total: num(r.saldo_total),
+          saldo_moroso: num(r.saldo_moroso),
+          mora_max_dias: num(r.mora_max_dias),
+          cartas_enviadas: num(r.cartas_enviadas),
+          revision_manual: bool(r.revision_manual),
+        }))
+        .filter((c) => c.cliente || c.nit)
+        .sort((a, c) => c.saldo_moroso - a.saldo_moroso),
+    };
+  }
+
   return {
     generado_en: str(b.generado_en) || new Date().toISOString(),
     rango: { desde: optStr(rango.desde) ?? null, hasta: optStr(rango.hasta) ?? null },
@@ -131,6 +189,8 @@ export function normalizeAudit(raw: unknown): AuditData {
     servicios,
     cotizaciones_definidas,
     ...(cotizaciones_revision ? { cotizaciones_revision } : {}),
+    ...(cartera_diaria ? { cartera_diaria } : {}),
+    ...(cartera_morosos ? { cartera_morosos } : {}),
   };
 }
 

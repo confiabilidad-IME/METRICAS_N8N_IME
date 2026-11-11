@@ -7,6 +7,7 @@
 //
 // Los mensajes de error no distinguen "usuario inexistente" de "contraseña errónea", y ambos casos tardan lo mismo.
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import type { AuditRole } from '../../shared/audit';
 import { sendJson } from '../http/app';
 import { AttemptLimiter } from './limiter';
 import { LOGIN_CSP, LOGIN_HTML } from './login-page';
@@ -35,6 +36,8 @@ export interface Auth {
   /** ¿Puede continuar la petición? Si no, ya respondió (401 en la API, redirección a /login en páginas). */
   allowed(req: IncomingMessage, res: ServerResponse, url: URL): boolean;
   user(req: IncomingMessage): string | null;
+  /** Rol del usuario con sesión; null sin sesión válida. */
+  role(req: IncomingMessage): AuditRole | null;
 }
 
 function readBody(req: IncomingMessage): Promise<string | null> {
@@ -116,8 +119,14 @@ export function createAuth(opts: AuthOptions): Auth {
     sendJson(res, 200, { ok: true, usuario: found.name });
   }
 
+  const role = (req: IncomingMessage): AuditRole | null => {
+    const name = user(req);
+    return name ? (byName.get(name)?.role ?? 'admin') : null;
+  };
+
   return {
     user,
+    role,
     handle(req, res, url) {
       const path = url.pathname;
       if (path === '/login') {
@@ -161,7 +170,7 @@ export function createAuth(opts: AuthOptions): Auth {
       }
       if (path === '/api/session') {
         const name = user(req);
-        if (name) sendJson(res, 200, { usuario: name });
+        if (name) sendJson(res, 200, { usuario: name, rol: role(req) });
         else sendJson(res, 401, { error: 'no autenticado' });
         return true;
       }

@@ -1,5 +1,5 @@
 // Datos ficticios con la forma de AUD04 (AUDIT_DEMO=1 y pruebas). Determinístico para un mismo `now`: sin Math.random.
-import type { AuditData, AuditDayMetrics, AuditExecutionDay, AuditQuote, AuditReviewQuote, AuditService } from '../../shared/audit';
+import type { AuditCarteraDay, AuditData, AuditDayMetrics, AuditExecutionDay, AuditQuote, AuditReviewQuote, AuditService } from '../../shared/audit';
 import { hash32, mulberry32 } from '../../shared/hash';
 import { addDays, dayIn } from './derive';
 
@@ -91,5 +91,52 @@ export function demoAudit(now: number, timezone: string, desde?: string): AuditD
   ];
   // El conteo de AUD01 coincide con la lista.
   if (metricas_diarias.length) metricas_diarias[metricas_diarias.length - 1].en_revision_manual = revision.length;
-  return { generado_en: new Date(now).toISOString(), rango: { desde: from, hasta: null }, metricas_diarias, ejecuciones_diarias, servicios, cotizaciones_definidas, cotizaciones_revision: revision };
+  // Cartera ficticia: la foto del día cambia un poco cada día; los tramos suman la cartera vencida.
+  const cartera_diaria: AuditCarteraDay[] = days.map((fecha) => {
+    const m1 = Math.round(380_000_000 + rand() * 90_000_000);
+    const m2 = Math.round(30_000_000 + rand() * 10_000_000);
+    const m3 = Math.round(50_000_000 + rand() * 10_000_000);
+    const m4 = 118_179_943;
+    const vencida = m1 + m2 + m3 + m4;
+    const abierta = 1_098_731_060;
+    return {
+      fecha,
+      cartera_abierta: abierta,
+      cartera_vencida: vencida,
+      pct_vencida: Math.round((vencida / abierta) * 10000) / 10000,
+      facturas_abiertas: 161,
+      facturas_vencidas: 80 + Math.floor(rand() * 10),
+      clientes_con_saldo: 61,
+      clientes_morosos: 6,
+      saldo_morosos: 173_782_800,
+      mora_1_30: m1,
+      mora_31_50: m2,
+      mora_51_90: m3,
+      mora_91_mas: m4,
+      recordatorios_enviados_dia: Math.floor(rand() * 12),
+      envios_30d: 56,
+      envios_respondidos_30d: 16,
+      envios_rebotados_30d: 5,
+      envios_pendientes_30d: 35,
+      tasa_respuesta_30d: 0.2857,
+      respuestas_dia: Math.floor(rand() * 3),
+      respuestas_por_revisar: 14,
+      cartas_enviadas_dia: 0,
+      clientes_revision_manual: 0,
+      acuerdos_vigentes: 5,
+      acuerdos_vencidos_sin_pago: rand() < 0.3 ? 2 : 0,
+      valor_comprometido: 48_675_119,
+      cartera_al: days[0],
+    };
+  });
+  const cartera_morosos: AuditData['cartera_morosos'] = {
+    fecha: hoy,
+    cartera_al: days[0] ?? hoy,
+    clientes: [
+      { nit: '800000001', cliente: 'Gestión Energética (demo)', facturas: 1, saldo_total: 118_179_943, saldo_moroso: 118_179_943, mora_max_dias: 112, cartas_enviadas: 0, revision_manual: false },
+      { nit: '800000002', cliente: 'Mayagüez (demo)', facturas: 18, saldo_total: 76_774_440, saldo_moroso: 32_176_596, mora_max_dias: 60, cartas_enviadas: 0, revision_manual: false },
+      { nit: '800000003', cliente: 'Colpapel (demo)', facturas: 7, saldo_total: 37_701_930, saldo_moroso: 8_606_159, mora_max_dias: 78, cartas_enviadas: 1, revision_manual: true },
+    ],
+  };
+  return { generado_en: new Date(now).toISOString(), rango: { desde: from, hasta: null }, metricas_diarias, ejecuciones_diarias, servicios, cotizaciones_definidas, cotizaciones_revision: revision, cartera_diaria, cartera_morosos };
 }

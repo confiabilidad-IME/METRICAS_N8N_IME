@@ -207,13 +207,35 @@ export function errorRows(services: readonly AuditService[], now: number, n8nUrl
     .sort((a, b) => (services.find((s) => s.workflow_id === b.id)?.ultimo_error?.at ?? '').localeCompare(services.find((s) => s.workflow_id === a.id)?.ultimo_error?.at ?? ''));
 }
 
-export type AuditTab = 'tecnico' | 'cotizaciones';
+export type AuditTab = 'tecnico' | 'cotizaciones' | 'facturacion';
 
-/** Cada pestaña se titula por lo que mide; una métrica de otro tema (facturación, salidas…) sumaría su propia pestaña. */
+/** Cada pestaña se titula por lo que mide; una métrica de otro tema (salidas…) sumaría su propia pestaña. */
 export const TABS: readonly { id: AuditTab; label: string; hint: string }[] = [
   { id: 'tecnico', label: 'Técnico', hint: 'Errores de flujos, ejecuciones y servicios' },
   { id: 'cotizaciones', label: 'Cotizaciones', hint: 'Cotizaciones definidas, pipeline y revisión manual' },
+  { id: 'facturacion', label: 'Facturación', hint: 'Cartera, mora, clientes morosos, recordatorios y acuerdos de pago' },
 ];
+
+/** Pestañas que ve cada rol: gerencia no ve información técnica de los flujos (el servidor tampoco se la envía). */
+export function visibleTabs(role: string | undefined): readonly { id: AuditTab; label: string; hint: string }[] {
+  return role === 'admin' ? TABS : TABS.filter((t) => t.id !== 'tecnico');
+}
+
+/** Último día con datos de cartera (las filas llegan ordenadas por fecha); undefined si no hay. */
+export function latestCartera<T extends { fecha: string }>(rows: readonly T[] | undefined): T | undefined {
+  return rows?.length ? rows[rows.length - 1] : undefined;
+}
+
+/** Tramos de mora con su peso sobre la cartera vencida (0–1); sin vencida, todos en 0. */
+export function moraBuckets(c: { cartera_vencida: number; mora_1_30: number; mora_31_50: number; mora_51_90: number; mora_91_mas: number }): { label: string; value: number; share: number }[] {
+  const total = c.cartera_vencida > 0 ? c.cartera_vencida : 0;
+  return [
+    { label: '1–30 días', value: c.mora_1_30 },
+    { label: '31–50 días', value: c.mora_31_50 },
+    { label: '51–90 días', value: c.mora_51_90 },
+    { label: 'Más de 90 días', value: c.mora_91_mas },
+  ].map((b) => ({ ...b, share: total ? Math.min(1, b.value / total) : 0 }));
+}
 
 export function isAuditTab(v: unknown): v is AuditTab {
   return TABS.some((t) => t.id === v);
@@ -232,12 +254,13 @@ export interface TabBadge {
 }
 
 /** Insignia de cada pestaña: la técnica cuenta flujos con error o alertas técnicas; cotizaciones, las que están en revisión. */
-export function tabBadges(services: readonly AuditService[], alerts: readonly { id: string }[], enRevisionManual: number): Record<AuditTab, TabBadge> {
+export function tabBadges(services: readonly AuditService[], alerts: readonly { id: string }[], enRevisionManual: number, acuerdosVencidos = 0): Record<AuditTab, TabBadge> {
   const failing = errorRows(services, 0).length;
   const techAlerts = splitAlerts(alerts).tecnico.length;
   return {
     tecnico: failing > 0 ? { count: failing, level: 'error' } : techAlerts > 0 ? { count: techAlerts, level: 'warn' } : { count: 0, level: 'none' },
     cotizaciones: enRevisionManual > 0 ? { count: enRevisionManual, level: 'warn' } : { count: 0, level: 'none' },
+    facturacion: acuerdosVencidos > 0 ? { count: acuerdosVencidos, level: 'warn' } : { count: 0, level: 'none' },
   };
 }
 

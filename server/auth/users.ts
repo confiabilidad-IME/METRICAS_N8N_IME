@@ -5,18 +5,34 @@
 // Un usuario con "disabled": true en una capa posterior desactiva al de las anteriores. Nunca hay contraseñas en claro.
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import type { AuditRole } from '../../shared/audit';
 import { isPasswordHash } from './passwords';
 
 export interface AuthUser {
   /** Nombre en minúsculas: el inicio de sesión no distingue mayúsculas. */
   name: string;
   hash: string;
+  /** Qué puede ver. Ausente se trata como `admin` (solo en pruebas): `parseUsers` siempre lo informa. */
+  role?: AuditRole;
 }
 
 interface RawUser {
   usuario?: unknown;
   hash?: unknown;
   disabled?: unknown;
+  rol?: unknown;
+}
+
+const ROLES: readonly AuditRole[] = ['admin', 'gerencia'];
+
+/**
+ * Rol de un usuario: el campo "rol" si está; si no, "gerencia" para el usuario llamado gerencia (así sigue restringido
+ * aunque `npm run user:add` le cambie la contraseña y regrabe el registro sin rol) y "admin" para el resto.
+ */
+export function roleFor(name: string, rol: unknown): AuditRole {
+  if (rol === undefined || rol === null || rol === '') return name === 'gerencia' ? 'gerencia' : 'admin';
+  if (typeof rol === 'string' && (ROLES as readonly string[]).includes(rol)) return rol as AuditRole;
+  throw new Error(`rol "${String(rol)}" no válido (usa ${ROLES.join(' o ')})`);
 }
 
 export const USERNAME_RE = /^[a-z0-9][a-z0-9._-]{1,31}$/;
@@ -34,7 +50,13 @@ export function parseUsers(raw: unknown, origin: string): Array<AuthUser & { dis
     const disabled = u.disabled === true;
     const hash = typeof u.hash === 'string' ? u.hash : '';
     if (!disabled && !isPasswordHash(hash)) throw new Error(`${origin}: el usuario "${name}" no tiene un hash scrypt válido (genera uno con npm run user:hash)`);
-    return { name, hash, disabled };
+    let role: AuditRole;
+    try {
+      role = roleFor(name, u.rol);
+    } catch (e) {
+      throw new Error(`${origin}: usuario "${name}": ${(e as Error).message}`);
+    }
+    return { name, hash, disabled, role };
   });
 }
 
@@ -72,5 +94,5 @@ export function loadUsers(env: Record<string, string | undefined>, rootDir: stri
   }
   const merged = new Map<string, AuthUser & { disabled: boolean }>();
   for (const layer of layers) for (const u of layer) merged.set(u.name, u);
-  return [...merged.values()].filter((u) => !u.disabled).map(({ name, hash }) => ({ name, hash }));
+  return [...merged.values()].filter((u) => !u.disabled).map(({ name, hash, role }) => ({ name, hash, role }));
 }

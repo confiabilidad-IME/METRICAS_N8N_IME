@@ -250,6 +250,15 @@ describe('cotizaciones en revisión manual', () => {
   const rev = (id: string, over = {}) => ({ cotizacion_id: id, numero_cotizacion: id.replace('COT-', ''), cliente: `Cliente ${id}`, comercial: 'Julián', valor: '1000', estado_actual: 'REVISION_MANUAL', requiere_revision: true, ...over });
 
   it('si AUD04 no trae el campo queda ausente (no se confunde con "ninguna")', () => {
+    expect(normalizeAudit({ servicios: [] }).cartera_diaria).toBeUndefined();
+    const c = normalizeAudit({
+      servicios: [],
+      cartera_diaria: [{ fecha: '2026-11-11T00:00:00Z', cartera_abierta: '1000', pct_vencida: 'x' }, { fecha: '2026-11-10', cartera_abierta: 900 }, { cartera_abierta: 5 }],
+      cartera_morosos: { fecha: '2026-11-11', cartera_al: null, clientes: [{ nit: '1', cliente: 'A', saldo_moroso: 5 }, { nit: '2', cliente: 'B', saldo_moroso: '50' }, {}] },
+    });
+    expect(c.cartera_diaria?.map((r) => r.fecha)).toEqual(['2026-11-10', '2026-11-11']);
+    expect(c.cartera_diaria?.[1]).toMatchObject({ cartera_abierta: 1000, pct_vencida: 0 });
+    expect(c.cartera_morosos?.clientes.map((m) => m.cliente)).toEqual(['B', 'A']);
     expect(normalizeAudit({ servicios: [] }).cotizaciones_revision).toBeUndefined();
     expect(normalizeAudit({ servicios: [], cotizaciones_revision: [] }).cotizaciones_revision).toEqual([]);
   });

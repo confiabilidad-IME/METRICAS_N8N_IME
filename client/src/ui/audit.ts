@@ -2,7 +2,7 @@
 // pipeline, correos, seguimientos). Los datos llegan en vivo con el snapshot (`snapshot.audit`, rango por defecto); otro
 // rango pide GET /api/audit?desde=. Todo se pinta con textContent (los textos vienen de n8n: nunca innerHTML).
 // El modelo (formatos, orden, agregaciones) es puro y se prueba en ui/audit-model.test.ts.
-import type { AuditAlert, AuditExecutionDay, AuditQuote, AuditReviewQuote, AuditService, AuditSnapshot } from '../../../shared/audit';
+import type { AuditAlert, AuditExecutionDay, AuditMoroso, AuditQuote, AuditReviewQuote, AuditService, AuditSnapshot } from '../../../shared/audit';
 import type { UiComponent, UiContext } from './context';
 import { h, iconButton, setHidden, setText } from './dom';
 import { ICONS } from './icons';
@@ -15,7 +15,9 @@ import {
   errorRows,
   execColumns,
   isAuditTab,
+  latestCartera,
   moneyFull,
+  moraBuckets,
   moneyShort,
   percent,
   quoteRows,
@@ -28,6 +30,7 @@ import {
   TABS,
   tabBadges,
   type AuditTab,
+  visibleTabs,
 } from './audit-model';
 
 const REFRESH_MS = 60_000;
@@ -84,6 +87,8 @@ export class AuditPanel implements UiComponent {
   private readonly session: HTMLElement;
   private readonly userLabel: HTMLElement;
   private tab: AuditTab = loadTab();
+  /** Rol del usuario con sesión; hasta saberlo se asume el más restringido en las pestañas que cambian (ver applyRole). */
+  private role: string | undefined;
   private readonly tabBtns = new Map<AuditTab, { btn: HTMLButtonElement; badge: HTMLElement }>();
   private readonly panels = new Map<AuditTab, HTMLElement>();
 
@@ -140,10 +145,12 @@ export class AuditPanel implements UiComponent {
     try {
       const res = await fetch('/api/session', { cache: 'no-store', credentials: 'same-origin' });
       if (!res.ok) return setHidden(this.session, true);
-      const body = (await res.json()) as { usuario?: unknown };
+      const body = (await res.json()) as { usuario?: unknown; rol?: unknown };
       if (typeof body.usuario !== 'string') return setHidden(this.session, true);
       setText(this.userLabel, body.usuario);
       setHidden(this.session, false);
+      this.role = typeof body.rol === 'string' ? body.rol : undefined;
+      this.applyRole();
     } catch {
       setHidden(this.session, true);
     }
@@ -165,9 +172,22 @@ export class AuditPanel implements UiComponent {
     if (focus) this.tabBtns.get(tab)?.btn.focus();
   }
 
+  /** Sin sesión con rol (AUDIT_AUTH=off, servidor local sin login) se ve todo, como antes. */
+  private visible(): readonly { id: AuditTab }[] {
+    return this.role === undefined ? TABS : visibleTabs(this.role);
+  }
+
+  /** Quita de la vista lo que el rol no puede ver (el servidor ya no envía esos datos) y mueve la pestaña elegida. */
+  private applyRole(): void {
+    if (!this.visible().some((t) => t.id === this.tab)) this.tab = this.visible()[0].id;
+    this.applyTab();
+  }
+
   private applyTab(): void {
+    const shown = new Set(this.visible().map((t) => t.id));
     for (const [id, { btn }] of this.tabBtns) {
-      const on = id === this.tab;
+      const on = id === this.tab && shown.has(id);
+      setHidden(btn, !shown.has(id));
       btn.setAttribute('aria-selected', String(on));
       btn.tabIndex = on ? 0 : -1;
       btn.classList.toggle('is-on', on);
@@ -177,11 +197,12 @@ export class AuditPanel implements UiComponent {
 
   /** Flechas, Inicio y Fin cambian de pestaña (patrón de teclado de las pestañas). */
   private onTabKey(e: KeyboardEvent): void {
-    const i = TABS.findIndex((t) => t.id === this.tab);
-    const next = e.key === 'ArrowRight' ? (i + 1) % TABS.length : e.key === 'ArrowLeft' ? (i - 1 + TABS.length) % TABS.length : e.key === 'Home' ? 0 : e.key === 'End' ? TABS.length - 1 : -1;
+    const tabs = this.visible();
+    const i = tabs.findIndex((t) => t.id === this.tab);
+    const next = e.key === 'ArrowRight' ? (i + 1) % tabs.length : e.key === 'ArrowLeft' ? (i - 1 + tabs.length) % tabs.length : e.key === 'Home' ? 0 : e.key === 'End' ? tabs.length - 1 : -1;
     if (next < 0) return;
     e.preventDefault();
-    this.selectTab(TABS[next].id, true);
+    this.selectTab(tabs[next].id, true);
   }
 
   get isOpen(): boolean {
@@ -286,11 +307,12 @@ export class AuditPanel implements UiComponent {
     const alerts = splitAlerts(audit.alertas);
     this.panels.get('tecnico')!.replaceChildren(...this.technical(audit, alerts.tecnico, now));
     this.panels.get('cotizaciones')!.replaceChildren(...this.quotes(audit, alerts.cotizaciones, now));
+    this.panels.get('facturacion')!.replaceChildren(...this.billing(audit));
     this.renderBadges(audit);
   }
 
   private renderBadges(audit: AuditSnapshot | undefined): void {
-    const b = audit?.data && audit.kpis ? tabBadges(audit.data.servicios, audit.alertas, audit.data.cotizaciones_revision?.length ?? audit.kpis.enRevisionManual) : undefined;
+    const b = audit?.data && audit.kpis ? tabBadges(audit.data.servicios, audit.alertas, audit.data.cotizaciones_revision?.length ?? audit.kpis.enRevisionManual, latestCartera(audit.data.cartera_diaria)?.acuerdos_vencidos_sin_pago ?? 0) : undefined;
     for (const [id, { badge, btn }] of this.tabBtns) {
       const v = b?.[id];
       setHidden(badge, !v || v.level === 'none');
@@ -366,6 +388,89 @@ export class AuditPanel implements UiComponent {
       this.section('Últimas cotizaciones definidas', this.quotesTable(data.cotizaciones_definidas)),
     );
     return out;
+  }
+
+  /** Pestaña Facturación: cartera abierta/vencida, tramos de mora, clientes morosos, recordatorios y acuerdos de pago. */
+  private billing(audit: AuditSnapshot): HTMLElement[] {
+    const data = audit.data!;
+    const c = latestCartera(data.cartera_diaria);
+    if (!c) {
+      const text = data.cartera_diaria
+        ? 'Audit_Cartera_Diaria está vacío en el rango: AUD05 aún no ha escrito datos.'
+        : 'AUD04 no está enviando la cartera. Publica la versión de AUD04 que incluye "Leer Audit_Cartera_Diaria" (AUD05 ya la calcula).';
+      return [h('p', { class: 'ui-day__empty', text })];
+    }
+    const morosos = data.cartera_morosos?.clientes ?? [];
+    const buckets = moraBuckets(c);
+    const out: HTMLElement[] = [];
+    out.push(
+      this.section(
+        `Cartera al ${dayShort(c.fecha)}${c.cartera_al ? ` (reporte del ${dayShort(c.cartera_al)})` : ''}`,
+        h(
+          'div',
+          { class: 'ui-audit__cards' },
+          this.card('Cartera abierta', moneyShort(c.cartera_abierta), '', moneyFull(c.cartera_abierta)),
+          this.card('Cartera vencida', moneyShort(c.cartera_vencida), c.cartera_vencida > 0 ? 'is-lost' : 'is-won', moneyFull(c.cartera_vencida)),
+          this.card('% vencida', percent(c.pct_vencida), c.pct_vencida > 0.5 ? 'is-lost' : c.pct_vencida > 0.25 ? 'is-warn' : 'is-won'),
+          this.card('Facturas abiertas / vencidas', `${count(c.facturas_abiertas)} / ${count(c.facturas_vencidas)}`),
+          this.card('Clientes con saldo', count(c.clientes_con_saldo)),
+          this.card('Clientes morosos', count(c.clientes_morosos), c.clientes_morosos > 0 ? 'is-warn' : '', `Saldo moroso: ${moneyFull(c.saldo_morosos)}`),
+        ),
+      ),
+      this.section(
+        'Cartera vencida por tramo de mora',
+        h(
+          'ul',
+          { class: 'ui-audit__alerts' },
+          ...buckets.map((b) => h('li', { class: 'ui-audit__alert' }, h('span', { text: `${b.label}: ${moneyShort(b.value)} (${percent(b.share)})`, title: moneyFull(b.value) }))),
+        ),
+      ),
+      this.section(
+        'Gestión de cobro',
+        h(
+          'div',
+          { class: 'ui-audit__cards' },
+          this.card('Recordatorios hoy', count(c.recordatorios_enviados_dia)),
+          this.card('Envíos 30 d', count(c.envios_30d)),
+          this.card('Tasa de respuesta 30 d', percent(c.tasa_respuesta_30d), '', `${count(c.envios_respondidos_30d)} respondidos, ${count(c.envios_rebotados_30d)} rebotados, ${count(c.envios_pendientes_30d)} sin respuesta`),
+          this.card('Respuestas por revisar', count(c.respuestas_por_revisar), c.respuestas_por_revisar > 0 ? 'is-warn' : ''),
+          this.card('Cartas prejurídicas hoy', count(c.cartas_enviadas_dia)),
+          this.card('Clientes en revisión manual', count(c.clientes_revision_manual), c.clientes_revision_manual > 0 ? 'is-warn' : ''),
+          this.card('Acuerdos de pago vigentes', count(c.acuerdos_vigentes)),
+          this.card('Acuerdos vencidos sin pago', count(c.acuerdos_vencidos_sin_pago), c.acuerdos_vencidos_sin_pago > 0 ? 'is-lost' : 'is-won'),
+          this.card('Valor comprometido', moneyShort(c.valor_comprometido), '', moneyFull(c.valor_comprometido)),
+        ),
+      ),
+      this.section(`Clientes morosos (${morosos.length})`, this.morososTable(morosos)),
+    );
+    return out;
+  }
+
+  private morososTable(list: readonly AuditMoroso[]): HTMLElement {
+    if (!list.length) return h('p', { class: 'ui-day__empty', text: 'No hay clientes morosos en el último reporte.' });
+    return h(
+      'table',
+      { class: 'ui-audit__table' },
+      h('thead', {}, h('tr', {}, h('th', { text: 'Cliente' }), h('th', { text: 'NIT' }), h('th', { class: 'is-num', text: 'Facturas' }), h('th', { class: 'is-num', text: 'Saldo total' }), h('th', { class: 'is-num', text: 'Saldo moroso' }), h('th', { class: 'is-num', text: 'Mora máx.' }), h('th', { class: 'is-num', text: 'Cartas' }), h('th', { text: 'Revisión' }))),
+      h(
+        'tbody',
+        {},
+        ...list.map((m) =>
+          h(
+            'tr',
+            {},
+            h('td', { text: m.cliente || '—' }),
+            h('td', { text: m.nit || '—' }),
+            h('td', { class: 'is-num', text: count(m.facturas) }),
+            h('td', { class: 'is-num', text: moneyShort(m.saldo_total), title: moneyFull(m.saldo_total) }),
+            h('td', { class: 'is-num', text: moneyShort(m.saldo_moroso), title: moneyFull(m.saldo_moroso) }),
+            h('td', { class: 'is-num', text: `${count(m.mora_max_dias)} d` }),
+            h('td', { class: 'is-num', text: count(m.cartas_enviadas) }),
+            h('td', {}, m.revision_manual ? h('span', { class: 'ui-audit__pill is-error', text: 'Manual' }) : '—'),
+          ),
+        ),
+      ),
+    );
   }
 
   /** Alertas; la de revisión manual despliega debajo las cotizaciones concretas (si AUD04 las informa). */

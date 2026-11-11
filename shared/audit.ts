@@ -104,6 +104,61 @@ export interface AuditReviewQuote {
   fecha_ultimo_movimiento?: string;
 }
 
+/**
+ * Una fila de Audit_Cartera_Diaria (AUD05 la actualiza cada hora; la fila del día se sobrescribe).
+ * Todo es una FOTO de la cartera a esa fecha (saldos en pesos), salvo los campos `*_dia`, que son del día.
+ */
+export interface AuditCarteraDay {
+  fecha: string;
+  cartera_abierta: number;
+  cartera_vencida: number;
+  /** 0–1 (cartera_vencida / cartera_abierta). */
+  pct_vencida: number;
+  facturas_abiertas: number;
+  facturas_vencidas: number;
+  clientes_con_saldo: number;
+  clientes_morosos: number;
+  saldo_morosos: number;
+  mora_1_30: number;
+  mora_31_50: number;
+  mora_51_90: number;
+  mora_91_mas: number;
+  recordatorios_enviados_dia: number;
+  envios_30d: number;
+  envios_respondidos_30d: number;
+  envios_rebotados_30d: number;
+  envios_pendientes_30d: number;
+  /** 0–1. */
+  tasa_respuesta_30d: number;
+  respuestas_dia: number;
+  respuestas_por_revisar: number;
+  cartas_enviadas_dia: number;
+  clientes_revision_manual: number;
+  acuerdos_vigentes: number;
+  acuerdos_vencidos_sin_pago: number;
+  valor_comprometido: number;
+  /** Fecha del reporte de cartera de origen (YYYY-MM-DD), si AUD05 la informa. */
+  cartera_al?: string;
+}
+
+/** Un cliente moroso del último reporte (Audit_Cartera_Diaria.detalle_morosos). */
+export interface AuditMoroso {
+  nit: string;
+  cliente: string;
+  facturas: number;
+  saldo_total: number;
+  saldo_moroso: number;
+  mora_max_dias: number;
+  cartas_enviadas: number;
+  revision_manual: boolean;
+}
+
+/**
+ * Rol del usuario con sesión. `admin` ve todo; `gerencia` ve solo la información de negocio (cotizaciones y facturación),
+ * sin datos técnicos de los flujos (ver shared/audit-redact.ts).
+ */
+export type AuditRole = 'admin' | 'gerencia';
+
 /** Normalización de la respuesta completa de AUD04 (sin derivados). */
 export interface AuditData {
   /** ISO 8601, reloj de n8n. */
@@ -115,6 +170,9 @@ export interface AuditData {
   cotizaciones_definidas: AuditQuote[];
   /** Ausente si AUD04 aún no incluye el campo (versión anterior del flujo): no es lo mismo que "ninguna". */
   cotizaciones_revision?: AuditReviewQuote[];
+  /** Ausente si AUD04 aún no publica la cartera (AUD05): distinto de "cartera vacía". */
+  cartera_diaria?: AuditCarteraDay[];
+  cartera_morosos?: { fecha: string | null; cartera_al: string | null; clientes: AuditMoroso[] };
 }
 
 /** Indicadores de negocio y de operación calculados sobre el rango consultado. */

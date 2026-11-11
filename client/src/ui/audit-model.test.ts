@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { AuditService } from '../../../shared/audit';
-import { ago, auditUrl, barHeight, dayShort, errorRows, execColumns, isAuditTab, moneyShort, percent, prettyLabel, quoteRows, reviewRows, serviceRows, splitAlerts, statusHint, TABS, tabBadges } from './audit-model';
+import { ago, auditUrl, barHeight, dayShort, errorRows, execColumns, isAuditTab, latestCartera, moneyShort, moraBuckets, percent, prettyLabel, quoteRows, reviewRows, serviceRows, splitAlerts, statusHint, TABS, tabBadges, visibleTabs } from './audit-model';
 
 const NOW = Date.parse('2026-11-04T12:00:00Z');
 const svc = (id: string, over: Partial<AuditService> = {}): AuditService => ({ workflow_id: id, workflow_nombre: `Flujo ${id}`, activo: true, errores_24h: 0, ...over });
@@ -134,7 +134,7 @@ describe('errorRows', () => {
 
 describe('pestañas', () => {
   it('cada pestaña se titula por su tema', () => {
-    expect(TABS.map((x) => x.label)).toEqual(['Técnico', 'Cotizaciones']);
+    expect(TABS.map((x) => x.label)).toEqual(['Técnico', 'Cotizaciones', 'Facturación']);
   });
   it('reparte las alertas: revisión manual es de cotizaciones, lo demás técnico', () => {
     const r = splitAlerts([{ id: 'ultima-fallida:a' }, { id: 'revision-manual:global' }, { id: 'servicios-vacio:global' }]);
@@ -144,9 +144,25 @@ describe('pestañas', () => {
   it('insignias: flujos con error > alertas técnicas > nada; cotizaciones cuenta la revisión manual', () => {
     const bad = svc('a', { estado_ultima: 'error' });
     const none = { count: 0, level: 'none' };
-    expect(tabBadges([bad, svc('b')], [], 0)).toEqual({ tecnico: { count: 1, level: 'error' }, cotizaciones: none });
-    expect(tabBadges([svc('b')], [{ id: 'servicios-vacio:global' }], 5)).toEqual({ tecnico: { count: 1, level: 'warn' }, cotizaciones: { count: 5, level: 'warn' } });
+    expect(tabBadges([bad, svc('b')], [], 0)).toEqual({ tecnico: { count: 1, level: 'error' }, cotizaciones: none, facturacion: none });
+    expect(tabBadges([svc('b')], [{ id: 'servicios-vacio:global' }], 5)).toEqual({ tecnico: { count: 1, level: 'warn' }, cotizaciones: { count: 5, level: 'warn' }, facturacion: none });
     expect(tabBadges([], [], 0).tecnico.level).toBe('none');
+  });
+  it('visibleTabs: gerencia (o un rol desconocido) no ve la pestaña técnica', () => {
+    expect(visibleTabs('admin').map((t) => t.id)).toEqual(['tecnico', 'cotizaciones', 'facturacion']);
+    expect(visibleTabs('gerencia').map((t) => t.id)).toEqual(['cotizaciones', 'facturacion']);
+    expect(visibleTabs(undefined).some((t) => t.id === 'tecnico')).toBe(false);
+  });
+  it('facturación: la insignia cuenta acuerdos de pago vencidos sin pago', () => {
+    expect(tabBadges([], [], 0, 2).facturacion).toEqual({ count: 2, level: 'warn' });
+    expect(tabBadges([], [], 0).facturacion.level).toBe('none');
+  });
+  it('latestCartera toma la última fila; moraBuckets reparte la vencida', () => {
+    expect(latestCartera([{ fecha: '2026-11-10' }, { fecha: '2026-11-11' }])?.fecha).toBe('2026-11-11');
+    expect(latestCartera(undefined)).toBeUndefined();
+    const b = moraBuckets({ cartera_vencida: 100, mora_1_30: 50, mora_31_50: 25, mora_51_90: 15, mora_91_mas: 10 });
+    expect(b.map((x) => x.share)).toEqual([0.5, 0.25, 0.15, 0.1]);
+    expect(moraBuckets({ cartera_vencida: 0, mora_1_30: 0, mora_31_50: 0, mora_51_90: 0, mora_91_mas: 0 }).every((x) => x.share === 0)).toBe(true);
   });
   it('isAuditTab valida lo que viene de localStorage (incluida la pestaña antigua "negocio")', () => {
     expect(isAuditTab('cotizaciones')).toBe(true);

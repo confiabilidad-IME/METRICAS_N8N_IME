@@ -184,7 +184,7 @@ describe('servidor con login', () => {
     expect(raw + JSON.stringify(await r.json())).not.toContain(PASS);
     const cookie = cookieOf(r);
     expect(await (await fetch(base + '/', { headers: { cookie } })).text()).toBe('contenido privado');
-    expect(await (await fetch(base + '/api/session', { headers: { cookie } })).json()).toEqual({ usuario: 'admin' });
+    expect(await (await fetch(base + '/api/session', { headers: { cookie } })).json()).toEqual({ usuario: 'admin', rol: 'admin' });
     const again = await fetch(base + '/login', { headers: { cookie }, redirect: 'manual' });
     expect(again.status).toBe(302);
     expect(again.headers.get('location')).toBe('/');

@@ -140,6 +140,56 @@ function normalizeAudit(raw) {
       fecha_ultimo_movimiento: optStr(r.fecha_ultimo_movimiento)
     })).filter((q) => q.cotizacion_id && !vistas.has(q.cotizacion_id) && (vistas.add(q.cotizacion_id), true));
   }
+  let cartera_diaria;
+  if ("cartera_diaria" in b) {
+    cartera_diaria = rows(b.cartera_diaria).map((r) => ({
+      fecha: day(r.fecha),
+      cartera_abierta: num(r.cartera_abierta),
+      cartera_vencida: num(r.cartera_vencida),
+      pct_vencida: num(r.pct_vencida),
+      facturas_abiertas: num(r.facturas_abiertas),
+      facturas_vencidas: num(r.facturas_vencidas),
+      clientes_con_saldo: num(r.clientes_con_saldo),
+      clientes_morosos: num(r.clientes_morosos),
+      saldo_morosos: num(r.saldo_morosos),
+      mora_1_30: num(r.mora_1_30),
+      mora_31_50: num(r.mora_31_50),
+      mora_51_90: num(r.mora_51_90),
+      mora_91_mas: num(r.mora_91_mas),
+      recordatorios_enviados_dia: num(r.recordatorios_enviados_dia),
+      envios_30d: num(r.envios_30d),
+      envios_respondidos_30d: num(r.envios_respondidos_30d),
+      envios_rebotados_30d: num(r.envios_rebotados_30d),
+      envios_pendientes_30d: num(r.envios_pendientes_30d),
+      tasa_respuesta_30d: num(r.tasa_respuesta_30d),
+      respuestas_dia: num(r.respuestas_dia),
+      respuestas_por_revisar: num(r.respuestas_por_revisar),
+      cartas_enviadas_dia: num(r.cartas_enviadas_dia),
+      clientes_revision_manual: num(r.clientes_revision_manual),
+      acuerdos_vigentes: num(r.acuerdos_vigentes),
+      acuerdos_vencidos_sin_pago: num(r.acuerdos_vencidos_sin_pago),
+      valor_comprometido: num(r.valor_comprometido),
+      cartera_al: optStr(r.cartera_al)
+    })).filter((c) => c.fecha).sort((a, c) => a.fecha < c.fecha ? -1 : a.fecha > c.fecha ? 1 : 0);
+  }
+  let cartera_morosos;
+  if (b.cartera_morosos && typeof b.cartera_morosos === "object") {
+    const m = b.cartera_morosos;
+    cartera_morosos = {
+      fecha: optStr(m.fecha) ? day(m.fecha) : null,
+      cartera_al: optStr(m.cartera_al) ? day(m.cartera_al) : null,
+      clientes: rows(m.clientes).map((r) => ({
+        nit: str(r.nit),
+        cliente: str(r.cliente),
+        facturas: num(r.facturas),
+        saldo_total: num(r.saldo_total),
+        saldo_moroso: num(r.saldo_moroso),
+        mora_max_dias: num(r.mora_max_dias),
+        cartas_enviadas: num(r.cartas_enviadas),
+        revision_manual: bool(r.revision_manual)
+      })).filter((c) => c.cliente || c.nit).sort((a, c) => c.saldo_moroso - a.saldo_moroso)
+    };
+  }
   return {
     generado_en: str(b.generado_en) || (/* @__PURE__ */ new Date()).toISOString(),
     rango: { desde: optStr(rango.desde) ?? null, hasta: optStr(rango.hasta) ?? null },
@@ -147,7 +197,9 @@ function normalizeAudit(raw) {
     ejecuciones_diarias,
     servicios,
     cotizaciones_definidas,
-    ...cotizaciones_revision ? { cotizaciones_revision } : {}
+    ...cotizaciones_revision ? { cotizaciones_revision } : {},
+    ...cartera_diaria ? { cartera_diaria } : {},
+    ...cartera_morosos ? { cartera_morosos } : {}
   };
 }
 function isIsoDay(s) {
@@ -10041,6 +10093,12 @@ function clearCookie(name, secure) {
 // server/auth/users.ts
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+var ROLES = ["admin", "gerencia"];
+function roleFor(name, rol) {
+  if (rol === void 0 || rol === null || rol === "") return name === "gerencia" ? "gerencia" : "admin";
+  if (typeof rol === "string" && ROLES.includes(rol)) return rol;
+  throw new Error(`rol "${String(rol)}" no v\xE1lido (usa ${ROLES.join(" o ")})`);
+}
 var USERNAME_RE = /^[a-z0-9][a-z0-9._-]{1,31}$/;
 function normalizeUsername(v) {
   return v.trim().toLowerCase();
@@ -10053,7 +10111,13 @@ function parseUsers(raw, origin) {
     const disabled = u.disabled === true;
     const hash = typeof u.hash === "string" ? u.hash : "";
     if (!disabled && !isPasswordHash(hash)) throw new Error(`${origin}: el usuario "${name}" no tiene un hash scrypt v\xE1lido (genera uno con npm run user:hash)`);
-    return { name, hash, disabled };
+    let role;
+    try {
+      role = roleFor(name, u.rol);
+    } catch (e) {
+      throw new Error(`${origin}: usuario "${name}": ${e.message}`);
+    }
+    return { name, hash, disabled, role };
   });
 }
 function readJson(path, origin, optional) {
@@ -10088,7 +10152,7 @@ function loadUsers(env, rootDir) {
   }
   const merged = /* @__PURE__ */ new Map();
   for (const layer of layers) for (const u of layer) merged.set(u.name, u);
-  return [...merged.values()].filter((u) => !u.disabled).map(({ name, hash }) => ({ name, hash }));
+  return [...merged.values()].filter((u) => !u.disabled).map(({ name, hash, role }) => ({ name, hash, role }));
 }
 
 // server/auth/index.ts
@@ -10168,8 +10232,13 @@ function createAuth(opts) {
     res.setHeader("Set-Cookie", sessionCookie(COOKIE, opts.sessions.issue(found.name), opts.sessions.ttlSeconds, secure(req)));
     sendJson(res, 200, { ok: true, usuario: found.name });
   }
+  const role = (req) => {
+    const name = user(req);
+    return name ? byName.get(name)?.role ?? "admin" : null;
+  };
   return {
     user,
+    role,
     handle(req, res, url) {
       const path = url.pathname;
       if (path === "/login") {
@@ -10213,7 +10282,7 @@ function createAuth(opts) {
       }
       if (path === "/api/session") {
         const name = user(req);
-        if (name) sendJson(res, 200, { usuario: name });
+        if (name) sendJson(res, 200, { usuario: name, rol: role(req) });
         else sendJson(res, 401, { error: "no autenticado" });
         return true;
       }
@@ -10524,7 +10593,53 @@ function demoAudit(now, timezone, desde) {
     { cotizacion_id: "demo-rev-2", cliente: "Consorcio Omia", comercial: "Julian Alvarez", valor: 0, estado_actual: "PENDIENTE_RESPUESTA_CLIENTE", requiere_revision: true, proxima_accion: "REVISION_HUMANA", fecha_ultimo_movimiento: new Date(now - 33 * 864e5).toISOString() }
   ];
   if (metricas_diarias.length) metricas_diarias[metricas_diarias.length - 1].en_revision_manual = revision.length;
-  return { generado_en: new Date(now).toISOString(), rango: { desde: from, hasta: null }, metricas_diarias, ejecuciones_diarias, servicios, cotizaciones_definidas, cotizaciones_revision: revision };
+  const cartera_diaria = days.map((fecha) => {
+    const m1 = Math.round(38e7 + rand() * 9e7);
+    const m2 = Math.round(3e7 + rand() * 1e7);
+    const m3 = Math.round(5e7 + rand() * 1e7);
+    const m4 = 118179943;
+    const vencida = m1 + m2 + m3 + m4;
+    const abierta = 1098731060;
+    return {
+      fecha,
+      cartera_abierta: abierta,
+      cartera_vencida: vencida,
+      pct_vencida: Math.round(vencida / abierta * 1e4) / 1e4,
+      facturas_abiertas: 161,
+      facturas_vencidas: 80 + Math.floor(rand() * 10),
+      clientes_con_saldo: 61,
+      clientes_morosos: 6,
+      saldo_morosos: 173782800,
+      mora_1_30: m1,
+      mora_31_50: m2,
+      mora_51_90: m3,
+      mora_91_mas: m4,
+      recordatorios_enviados_dia: Math.floor(rand() * 12),
+      envios_30d: 56,
+      envios_respondidos_30d: 16,
+      envios_rebotados_30d: 5,
+      envios_pendientes_30d: 35,
+      tasa_respuesta_30d: 0.2857,
+      respuestas_dia: Math.floor(rand() * 3),
+      respuestas_por_revisar: 14,
+      cartas_enviadas_dia: 0,
+      clientes_revision_manual: 0,
+      acuerdos_vigentes: 5,
+      acuerdos_vencidos_sin_pago: rand() < 0.3 ? 2 : 0,
+      valor_comprometido: 48675119,
+      cartera_al: days[0]
+    };
+  });
+  const cartera_morosos = {
+    fecha: hoy,
+    cartera_al: days[0] ?? hoy,
+    clientes: [
+      { nit: "800000001", cliente: "Gesti\xF3n Energ\xE9tica (demo)", facturas: 1, saldo_total: 118179943, saldo_moroso: 118179943, mora_max_dias: 112, cartas_enviadas: 0, revision_manual: false },
+      { nit: "800000002", cliente: "Mayag\xFCez (demo)", facturas: 18, saldo_total: 76774440, saldo_moroso: 32176596, mora_max_dias: 60, cartas_enviadas: 0, revision_manual: false },
+      { nit: "800000003", cliente: "Colpapel (demo)", facturas: 7, saldo_total: 37701930, saldo_moroso: 8606159, mora_max_dias: 78, cartas_enviadas: 1, revision_manual: true }
+    ]
+  };
+  return { generado_en: new Date(now).toISOString(), rango: { desde: from, hasta: null }, metricas_diarias, ejecuciones_diarias, servicios, cotizaciones_definidas, cotizaciones_revision: revision, cartera_diaria, cartera_morosos };
 }
 
 // server/audit/live.ts
